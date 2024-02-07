@@ -603,6 +603,36 @@ impl<K, V> KeyedVecSet<K, V> {
         self.base.get_mut(index)
     }
 
+    /// Returns a reference to an element or subslice, without doing bounds
+    /// checking.
+    ///
+    /// For a safe alternative see [`get_index`].
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an out-of-bounds index is *[undefined behavior]*
+    /// even if the resulting reference is not used.
+    ///
+    /// [`get_index`]: KeyedVecSet::get_index
+    pub unsafe fn get_unchecked(&self, index: usize) -> &V {
+        self.base.get_unchecked(index)
+    }
+
+    /// Returns a mutable reference to an element or subslice, without doing
+    /// bounds checking.
+    ///
+    /// For a safe alternative see [`get_index_mut`].
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an out-of-bounds index is *[undefined behavior]*
+    /// even if the resulting reference is not used.
+    ///
+    /// [`get_index_mut`]: KeyedVecSet::get_index_mut
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
+        self.base.get_unchecked_mut(index)
+    }
+
     /// Return the index and references to the key-value pair stored for `key`, if it is present,
     /// else `None`.
     ///

@@ -480,6 +480,21 @@ impl<T> VecSet<T> {
         self.base.get_index(index)
     }
 
+    /// Returns a reference to an element or subslice, without doing bounds
+    /// checking.
+    ///
+    /// For a safe alternative see [`get_index`].
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an out-of-bounds index is *[undefined behavior]*
+    /// even if the resulting reference is not used.
+    ///
+    /// [`get_index`]: VecSet::get_index
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        self.base.get_unchecked(index)
+    }
+
     /// Returns the index and a reference to the value in the set, if any, that is equal to the
     /// given value.
     ///

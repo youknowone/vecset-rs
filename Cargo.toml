@@ -1,6 +1,6 @@
 [package]
 name = "vecset"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Jeong, Yunwon <jeong@youknowone.org>"]
 license = "MIT OR Apache-2.0"
 description = "A vector-based sorted map, set and keyed-set implementation"

@@ -378,6 +378,14 @@ impl<T> VecSet<T> {
         let base = KeyedVecSet::from_vec_unchecked(vec);
         VecSet { base }
     }
+
+    /// Returns based `KeyedVecSet`.
+    ///
+    /// Because `VecSet` itself never expose `&mut T`,
+    /// this is useful when you need to edit keys, which are basically unsafe operations.
+    pub fn as_mut_keyed_set(&mut self) -> &mut KeyedVecSet<T, T> {
+        &mut self.base
+    }
 }
 
 // Lookup operations.
@@ -564,10 +572,6 @@ impl<T> VecSet<T> {
 
     /// Removes and returns the element at position `index` within the set, shifting all elements
     /// after it to the left.
-    ///
-    /// If you don't need the order of elements to be preserved, use [`swap_remove`] instead.
-    ///
-    /// [`swap_remove`]: VecSet::swap_remove
     ///
     /// # Panics
     ///

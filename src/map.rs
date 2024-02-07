@@ -380,6 +380,14 @@ impl<K, V> VecMap<K, V> {
         let base = KeyedVecSet::from_vec_unchecked(vec);
         VecMap { base }
     }
+
+    /// Returns based `KeyedVecSet`.
+    ///
+    /// Because `VecMap` itself never expose `&mut K`,
+    /// this is useful when you need to edit keys, which are basically unsafe operations.
+    pub fn as_mut_keyed_set(&mut self) -> &mut KeyedVecSet<K, (K, V)> {
+        &mut self.base
+    }
 }
 
 // Lookup operations

@@ -1,5 +1,31 @@
-use super::VecMap;
+use super::{Keyed, KeyedVecSet};
 use core::mem;
+use core::ops::Deref;
+
+/// `&mut V` wrapper to defer unsafe operations.
+///
+/// Accessing `&mut V` in `KeyedVecSet` is unsafe because changing key may cause the map to be unsorted or have duplicate keys.
+/// Since most of operations in `Entry` returns `&mut V`, they must be regarded as unsafe in principle.
+///
+/// On the other hand, those entry operations are actually safe unless mutably accessing the returned value.
+/// `Mut` helps to regard entry operations itself as safe, but accessing the returned value as unsafe.
+pub struct Mut<'a, V>(&'a mut V);
+
+impl<V> Mut<'_, V> {
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    pub unsafe fn as_mut(&mut self) -> &mut V {
+        self.0
+    }
+}
+
+impl<V> Deref for Mut<'_, V> {
+    type Target = V;
+
+    fn deref(&self) -> &V {
+        self.0
+    }
+}
 
 /// Entry for an existing key-value pair or a vacant location to insert one.
 #[derive(Debug)]
@@ -10,26 +36,30 @@ pub enum Entry<'a, K, V> {
     Vacant(VacantEntry<'a, K, V>),
 }
 
-impl<'a, K, V> Entry<'a, K, V> {
+impl<'a, K, V> Entry<'a, K, V>
+where
+    K: Ord,
+    V: Keyed<K>,
+{
     /// Ensures a value is in the entry by inserting the default if empty, and returns a mutable
     /// reference to the value in the entry.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
     ///
-    /// map.entry("poneyland").or_insert(3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.entry("poneyland").or_insert(("poneyland", 3));
+    /// assert_eq!(map["poneyland"].1, 3);
     ///
-    /// *map.entry("poneyland").or_insert(10) *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// unsafe { map.entry("poneyland").or_insert(("poneyland", 10)).as_mut().1 *= 2 };
+    /// assert_eq!(map["poneyland"].1, 6);
     /// ```
-    pub fn or_insert(self, default: V) -> &'a mut V {
+    pub fn or_insert(self, default: V) -> Mut<'a, V> {
         match self {
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => entry.insert(default),
         }
     }
@@ -40,21 +70,21 @@ impl<'a, K, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::{Keyed, KeyedVecSet};
     ///
-    /// let mut map: VecMap<&str, String> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, (&str, String)> = KeyedVecSet::new();
     /// let s = "hoho".to_string();
     ///
-    /// map.entry("poneyland").or_insert_with(|| s);
+    /// map.entry("poneyland").or_insert_with(|| ("poneyland", s));
     ///
-    /// assert_eq!(map["poneyland"], "hoho".to_string());
+    /// assert_eq!(map["poneyland"].1, "hoho".to_string());
     /// ```
-    pub fn or_insert_with<F>(self, call: F) -> &'a mut V
+    pub fn or_insert_with<F>(self, call: F) -> Mut<'a, V>
     where
         F: FnOnce() -> V,
     {
         match self {
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => entry.insert(call()),
         }
     }
@@ -69,20 +99,20 @@ impl<'a, K, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, usize> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, (&str, usize)> = KeyedVecSet::new();
     ///
-    /// map.entry("poneyland").or_insert_with_key(|key| key.chars().count());
+    /// map.entry("poneyland").or_insert_with_key(|key| (key, key.chars().count()));
     ///
-    /// assert_eq!(map["poneyland"], 9);
+    /// assert_eq!(map["poneyland"].1, 9);
     /// ```
-    pub fn or_insert_with_key<F>(self, default: F) -> &'a mut V
+    pub fn or_insert_with_key<F>(self, default: F) -> Mut<'a, V>
     where
         F: FnOnce(&K) -> V,
     {
         match self {
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => {
                 let value = default(&entry.key);
                 entry.insert(value)
@@ -95,9 +125,9 @@ impl<'a, K, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
     pub fn key(&self) -> &K {
@@ -112,9 +142,9 @@ impl<'a, K, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
     /// assert_eq!(map.entry("poneyland").index(), 0);
     /// ```
     pub fn index(&self) -> usize {
@@ -127,24 +157,29 @@ impl<'a, K, V> Entry<'a, K, V> {
     /// Provides in-place mutable access to an occupied entry before any potential inserts into the
     /// map.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
     ///
-    /// map.entry("poneyland")
-    ///    .and_modify(|e| { *e += 1 })
-    ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 42);
+    /// unsafe {
+    ///    map.entry("poneyland")
+    ///        .and_modify(|e| { e.1 += 1 })
+    /// }.or_insert(("poneyland", 42));
+    /// assert_eq!(map["poneyland"].1, 42);
     ///
-    /// map.entry("poneyland")
-    ///    .and_modify(|e| { *e += 1 })
-    ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 43);
+    /// unsafe {
+    ///     map.entry("poneyland")
+    ///        .and_modify(|e| { e.1 += 1 })
+    /// }.or_insert(("poneyland", 42));
+    /// assert_eq!(map["poneyland"].1, 43);
     /// ```
-    pub fn and_modify<F>(self, f: F) -> Self
+    pub unsafe fn and_modify<F>(self, f: F) -> Self
     where
         F: FnOnce(&mut V),
     {
@@ -164,35 +199,39 @@ impl<'a, K, V> Entry<'a, K, V> {
     ///
     /// ```
     /// # fn main() {
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, Option<u32>> = VecMap::new();
-    /// map.entry("poneyland").or_default();
+    /// let mut map: KeyedVecSet<u32, u32> = KeyedVecSet::new();
+    /// map.entry(0).or_default();
     ///
-    /// assert_eq!(map["poneyland"], None);
+    /// assert_eq!(map[0], 0);
     /// # }
     /// ```
-    pub fn or_default(self) -> &'a mut V
+    pub fn or_default(self) -> Mut<'a, V>
     where
         V: Default,
     {
         match self {
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => entry.insert(V::default()),
         }
     }
 }
 
-/// A view into an occupied entry in a `VecMap`. It is part of the [`Entry`] enum.
+/// A view into an occupied entry in a `KeyedVecSet`. It is part of the [`Entry`] enum.
 #[derive(Debug)]
 pub struct OccupiedEntry<'a, K, V> {
-    map: &'a mut VecMap<K, V>,
+    map: &'a mut KeyedVecSet<K, V>,
     key: K,
     index: usize,
 }
 
 impl<'a, K, V> OccupiedEntry<'a, K, V> {
-    pub(super) fn new(map: &'a mut VecMap<K, V>, key: K, index: usize) -> OccupiedEntry<'a, K, V> {
+    pub(super) fn new(
+        map: &'a mut KeyedVecSet<K, V>,
+        key: K,
+        index: usize,
+    ) -> OccupiedEntry<'a, K, V> {
         OccupiedEntry { map, key, index }
     }
 
@@ -201,10 +240,10 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
     pub fn key(&self) -> &K {
@@ -216,10 +255,10 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     /// assert_eq!(map.entry("poneyland").index(), 0);
     /// ```
     pub fn index(&self) -> usize {
@@ -231,11 +270,11 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.insert("foo", 1);
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
+    /// map.insert("foo");
     ///
     /// if let Entry::Occupied(v) = map.entry("foo") {
     ///     v.into_key();
@@ -250,14 +289,14 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     ///
     /// if let Entry::Occupied(o) = map.entry("poneyland") {
-    ///     assert_eq!(o.get(), &12);
+    ///     assert_eq!(o.get().1, 12);
     /// }
     /// ```
     pub fn get(&self) -> &V {
@@ -271,28 +310,31 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     ///
     /// [`into_mut`]: Self::into_mut
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     ///
-    /// assert_eq!(map["poneyland"], 12);
+    /// assert_eq!(map["poneyland"].1, 12);
     /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
-    ///     *o.get_mut() += 10;
-    ///     assert_eq!(*o.get(), 22);
+    ///     unsafe { o.get_mut().1 += 10 };
+    ///     assert_eq!(o.get().1, 22);
     ///
     ///     // We can use the same Entry multiple times.
-    ///     *o.get_mut() += 2;
+    ///     unsafe { o.get_mut().1 += 2 };
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 24);
+    /// assert_eq!(map["poneyland"].1, 24);
     /// ```
-    pub fn get_mut(&mut self) -> &mut V {
-        &mut self.map[self.index]
+    pub unsafe fn get_mut(&mut self) -> &mut V {
+        self.map.get_index_mut(self.index).expect("unexisting key")
     }
 
     /// Converts the `OccupiedEntry` into a mutable reference to the value in the entry
@@ -302,24 +344,27 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     ///
     /// [`get_mut`]: Self::get_mut
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     ///
-    /// assert_eq!(map["poneyland"], 12);
+    /// assert_eq!(map["poneyland"].1, 12);
     /// if let Entry::Occupied(o) = map.entry("poneyland") {
-    ///     *o.into_mut() += 10;
+    ///     unsafe { o.into_mut().1 += 10 };
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 22);
+    /// assert_eq!(map["poneyland"].1, 22);
     /// ```
-    pub fn into_mut(self) -> &'a mut V {
-        &mut self.map[self.index]
+    pub unsafe fn into_mut(self) -> &'a mut V {
+        self.map.get_index_mut(self.index).expect("unexisting key")
     }
 
     /// Sets the value of the entry, and returns the entry's old value.
@@ -327,20 +372,20 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
     ///
     /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
-    ///     assert_eq!(o.insert(15), 12);
+    ///     assert_eq!(o.insert(("poneyland", 15)), ("poneyland", 12));
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 15);
+    /// assert_eq!(map["poneyland"].1, 15);
     /// ```
     pub fn insert(&mut self, value: V) -> V {
-        mem::replace(self.get_mut(), value)
+        mem::replace(unsafe { self.get_mut() }, value)
     }
 
     /// Removes and return the key-value pair stored in the map for this entry.
@@ -351,13 +396,13 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
-    /// map.entry("foo").or_insert(13);
-    /// map.entry("bar").or_insert(14);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
+    /// map.entry("foo").or_insert(("foo", 13));
+    /// map.entry("bar").or_insert(("bar", 14));
     ///
     /// if let Entry::Occupied(o) = map.entry("poneyland") {
     ///     // We delete the entry from the map.
@@ -365,10 +410,10 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// }
     ///
     /// assert_eq!(map.contains_key("poneyland"), false);
-    /// assert_eq!(map.binary_search("foo"), Ok(1));
     /// assert_eq!(map.binary_search("bar"), Ok(0));
+    /// assert_eq!(map.binary_search("foo"), Ok(1));
     /// ```
-    pub fn remove_entry(self) -> (K, V) {
+    pub fn remove_entry(self) -> V {
         self.map.remove_index(self.index)
     }
 
@@ -380,37 +425,41 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
-    /// map.entry("poneyland").or_insert(12);
-    /// map.entry("foo").or_insert(13);
-    /// map.entry("bar").or_insert(14);
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
+    /// map.entry("poneyland").or_insert(("poneyland", 12));
+    /// map.entry("foo").or_insert(("foo", 13));
+    /// map.entry("bar").or_insert(("bar", 14));
     ///
     /// if let Entry::Occupied(o) = map.entry("poneyland") {
-    ///     assert_eq!(o.remove(), 12);
+    ///     assert_eq!(o.remove().1, 12);
     /// }
     ///
     /// assert_eq!(map.contains_key("poneyland"), false);
-    /// assert_eq!(map.binary_search("foo"), Ok(1));
     /// assert_eq!(map.binary_search("bar"), Ok(0));
+    /// assert_eq!(map.binary_search("foo"), Ok(1));
     /// ```
     pub fn remove(self) -> V {
-        self.remove_entry().1
+        self.remove_entry()
     }
 }
 
-/// A view into a vacant entry in a `VecMap`. It is part of the [`Entry`] enum.
+/// A view into a vacant entry in a `KeyedVecSet`. It is part of the [`Entry`] enum.
 #[derive(Debug)]
 pub struct VacantEntry<'a, K, V> {
-    map: &'a mut VecMap<K, V>,
+    map: &'a mut KeyedVecSet<K, V>,
     key: K,
     index: usize,
 }
 
 impl<'a, K, V> VacantEntry<'a, K, V> {
-    pub(super) fn new(map: &'a mut VecMap<K, V>, key: K, index: usize) -> VacantEntry<'a, K, V> {
+    pub(super) fn new(
+        map: &'a mut KeyedVecSet<K, V>,
+        key: K,
+        index: usize,
+    ) -> VacantEntry<'a, K, V> {
         VacantEntry { map, key, index }
     }
 
@@ -420,9 +469,9 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
     pub fn key(&self) -> &K {
@@ -434,13 +483,13 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
     /// assert_eq!(map.entry("poneyland").index(), 0);
     /// ```
     pub fn index(&self) -> usize {
-        self.map.len()
+        self.index
     }
 
     /// Take ownership of the key.
@@ -448,10 +497,10 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, &str> = KeyedVecSet::new();
     ///
     /// if let Entry::Vacant(v) = map.entry("poneyland") {
     ///     v.into_key();
@@ -467,18 +516,22 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
-    /// use vecset::map::Entry;
+    /// use vecset::KeyedVecSet;
+    /// use vecset::keyed::Entry;
     ///
-    /// let mut map: VecMap<&str, u32> = VecMap::new();
+    /// let mut map: KeyedVecSet<&str, (&str, u32)> = KeyedVecSet::new();
     ///
     /// if let Entry::Vacant(o) = map.entry("poneyland") {
-    ///     o.insert(37);
+    ///     o.insert(("poneyland", 37));
     /// }
-    /// assert_eq!(map["poneyland"], 37);
+    /// assert_eq!(map["poneyland"], ("poneyland", 37));
     /// ```
-    pub fn insert(self, value: V) -> &'a mut V {
-        self.map.base.base.insert(self.index, (self.key, value));
-        &mut self.map[self.index]
+    pub fn insert(self, value: V) -> Mut<'a, V>
+    where
+        K: Ord,
+        V: Keyed<K>,
+    {
+        self.map.base.insert(self.index, value);
+        Mut(unsafe { self.map.base.get_unchecked_mut(self.index) })
     }
 }

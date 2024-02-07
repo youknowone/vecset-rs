@@ -1,33 +1,23 @@
-# vecmap-rs
+# vecset
 
-[![Build Status](https://github.com/martinohmann/vecmap-rs/workflows/ci/badge.svg)](https://github.com/martinohmann/vecmap-rs/actions?query=workflow%3Aci)
-[![crates.io](https://img.shields.io/crates/v/vecmap-rs)](https://crates.io/crates/vecmap-rs)
-[![docs.rs](https://img.shields.io/docsrs/vecmap-rs)](https://docs.rs/vecmap-rs)
+[![Build Status](https://github.com/youknowone/vecset/workflows/ci/badge.svg)](https://github.com/youknowone/vecset/actions?query=workflow%3Aci)
+[![crates.io](https://img.shields.io/crates/v/vecset)](https://crates.io/crates/vecset)
+[![docs.rs](https://img.shields.io/docsrs/vecset)](https://docs.rs/vecset)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A vector-based ordered map and set implementation with zero dependencies and
+A vector-based sorted map and set implementation with zero dependencies and
 support for `#![no_std]`.
 
-Map keys are not required to be hashable and do not need to form a total order.
-Therefore, [`VecMap<K, V>`](https://docs.rs/vecmap-rs/latest/vecmap/map/struct.VecMap.html)
-and [`VecSet<T>`](https://docs.rs/vecmap-rs/latest/vecmap/set/struct.VecSet.html)
-can be used with key types which neither implement
-[`Hash`](https://doc.rust-lang.org/core/hash/trait.Hash.html) nor
-[`Ord`](https://doc.rust-lang.org/core/cmp/trait.Ord.html).
+The crate provides `VecMap`, `VecSet` and `KeyedVecSet` which are basically a map interface wrapper of sorted vectors. For all types, searching is O(n) using `Vec::binary_search`.
 
-Since vecmap-rs is a [`Vec<(K, V)>`](https://doc.rust-lang.org/alloc/vec/struct.Vec.html)
-under the hood, worst case lookup and insertion performance is `O(n)` and
-scales with the number of map entries. Thus, its main use case are small
-collections with unhashable keys.
+`VecMap<K, V>` is a map interface for a sorted vector `Vec<(K, V)>`. It is a wrapper of `KeyedVecSet` specialization `KeyedVecSet<K, (K, V)>`.
 
-For key types that implement `Hash` and `Ord` consider using a map or set
-implementation with better performance such as
-[`HashMap`](https://doc.rust-lang.org/std/collections/struct.HashMap.html)/[`HashSet`](https://doc.rust-lang.org/std/collections/struct.HashSet.html)
-and
-[`BTreeMap`](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html)/[`BTreeSet`](https://doc.rust-lang.org/std/collections/struct.BTreeSet.html)
-from the standard library or popular alternatives like
-[`IndexMap`](https://docs.rs/indexmap/latest/indexmap/map/struct.IndexMap.html)/[`IndexSet`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html).
+`VecSet<T>` is a set interface for a sorted vector `Vec<T>`. It is a wrapper of `KeyedVecSet` specialization `KeyedVecSet<T, T>`. This is also same as sorting-guaranteed `Vec<T>`.
+
+`KeyedVecSet<K, V>` is a generalized interface of a sorted vector `Vec<V>` where `V: Keyed<K>`. It means `V` provides a key value using the key accessor `<V as Keyed<K>>::key() -> &K`. This is useful when value contains its own key. Accessing mutable reference of `KeyedVecSet` elements is unsafe because editing the key value may corrupt sorting of the container. The same functions will be safe for `VecMap` by hiding the key part from mutable reference.
+
+Map keys are required to form a total order.
 
 ## Cargo features
 
@@ -40,5 +30,7 @@ The following features are available:
 
 ## License
 
-The source code of vecmap-rs is licensed under either of [Apache License,
+The source code of vecset is licensed under either of [Apache License,
 Version 2.0](LICENSE-APACHE.md) or [MIT license](LICENSE-MIT) at your option.
+
+Thanks to [vecmap-rs](https://github.com/martinohmann/vecmap-rs), the first version of this project based on.

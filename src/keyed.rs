@@ -1,4 +1,4 @@
-//! `VecMap` is a vector-based map implementation which retains the order of inserted entries.
+//! `KeyedVecSet` is a vector-based map implementation which retains the order of inserted entries.
 
 mod entry;
 mod impls;
@@ -6,49 +6,67 @@ mod iter;
 #[cfg(feature = "serde")]
 mod serde;
 
-use super::KeyedVecSet;
 use alloc::vec::{self, Vec};
 use core::borrow::Borrow;
+use core::mem;
 use core::ops::RangeBounds;
+use core::slice;
 
 pub use self::entry::{Entry, OccupiedEntry, VacantEntry};
-pub use self::iter::*;
 
-// The type used to store entries in a `VecMap`.
-//
-// It is just a alias type of`(K, V)`
-type Slot<K, V> = (K, V);
+/// Key accessor for elements which have their own keys, used for `KeyedVecSet`.
+pub trait Keyed<K>
+where
+    K: ?Sized,
+{
+    /// key accessor for the element.
+    fn key(&self) -> &K;
+}
+
+// KeyMap
+impl<K, V> Keyed<K> for (K, V) {
+    fn key(&self) -> &K {
+        &self.0
+    }
+}
+
+// KeySet
+impl<K> Keyed<K> for K {
+    fn key(&self) -> &K {
+        &self
+    }
+}
+
+impl Keyed<str> for alloc::string::String {
+    fn key(&self) -> &str {
+        self.as_str()
+    }
+}
 
 /// A vector-based map implementation which retains the order of inserted entries.
 ///
 /// Internally it is represented as a `Vec<(K, V)>` to support keys that are neither `Hash` nor
 /// `Ord`.
 #[derive(Clone, Debug)]
-pub struct VecMap<K, V> {
-    pub(crate) base: KeyedVecSet<K, Slot<K, V>>,
+pub struct KeyedVecSet<K, V> {
+    pub(crate) base: Vec<V>,
+    _marker: core::marker::PhantomData<K>,
 }
 
-impl<K, V> VecMap<K, V> {
-    fn refs(slot: &Slot<K, V>) -> (&K, &V) {
-        (&slot.0, &slot.1)
-    }
-
-    fn ref_mut(slot: &mut Slot<K, V>) -> (&K, &mut V) {
-        (&slot.0, &mut slot.1)
-    }
-
+impl<K, V> KeyedVecSet<K, V> {
     /// Create a new map. (Does not allocate.)
     ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, &str> = VecMap::new();
+    /// let mut map: KeyedVecSet<i32, &str> = KeyedVecSet::new();
     /// ```
     pub const fn new() -> Self {
-        VecMap {
-            base: KeyedVecSet::new(),
+        KeyedVecSet {
+            base: Vec::new(),
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -58,15 +76,16 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, &str> = VecMap::with_capacity(10);
+    /// let mut map: KeyedVecSet<i32, &str> = KeyedVecSet::with_capacity(10);
     /// assert_eq!(map.len(), 0);
     /// assert!(map.capacity() >= 10);
     /// ```
     pub fn with_capacity(capacity: usize) -> Self {
-        VecMap {
-            base: KeyedVecSet::with_capacity(capacity),
+        KeyedVecSet {
+            base: Vec::with_capacity(capacity),
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -75,9 +94,9 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, &str> = VecMap::with_capacity(10);
+    /// let mut map: KeyedVecSet<i32, (i32, &str)> = KeyedVecSet::with_capacity(10);
     /// assert_eq!(map.capacity(), 10);
     /// ```
     pub fn capacity(&self) -> usize {
@@ -89,11 +108,11 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut a = VecMap::new();
+    /// let mut a = KeyedVecSet::<u32, (u32, &str)>::new();
     /// assert_eq!(a.len(), 0);
-    /// a.insert(1, "a");
+    /// a.insert((1, "a"));
     /// assert_eq!(a.len(), 1);
     /// ```
     pub fn len(&self) -> usize {
@@ -105,11 +124,11 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut a = VecMap::new();
+    /// let mut a = KeyedVecSet::<i32, (i32, &str)>::new();
     /// assert!(a.is_empty());
-    /// a.insert(1, "a");
+    /// a.insert((1, "a"));
     /// assert!(!a.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -121,10 +140,10 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut a = VecMap::new();
-    /// a.insert(1, "a");
+    /// let mut a = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// a.insert((1, "a"));
     /// a.clear();
     /// assert!(a.is_empty());
     /// ```
@@ -141,28 +160,28 @@ impl<K, V> VecMap<K, V> {
     /// Truncating a four element map to two elements:
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from([("a", 1), ("b", 2), ("c", 3), ("d", 4)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2), ("c", 3), ("d", 4)]);
     /// map.truncate(2);
-    /// assert_eq!(map, VecMap::from([("a", 1), ("b", 2)]));
+    /// assert_eq!(map, KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]));
     /// ```
     ///
     /// No truncation occurs when `len` is greater than the map's current length:
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from([("a", 1), ("b", 2), ("c", 3), ("d", 4)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2), ("c", 3), ("d", 4)]);
     /// map.truncate(8);
-    /// assert_eq!(map, VecMap::from([("a", 1), ("b", 2), ("c", 3), ("d", 4)]));
+    /// assert_eq!(map, KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2), ("c", 3), ("d", 4)]));
     /// ```
     pub fn truncate(&mut self, len: usize) {
         self.base.truncate(len);
     }
 
     /// Reserves capacity for at least `additional` more elements to be inserted in the given
-    /// `VecMap<K, V>`. The collection may reserve more space to speculatively avoid frequent
+    /// `KeyedVecSet<K, V>`. The collection may reserve more space to speculatively avoid frequent
     /// reallocations. After calling `reserve`, capacity will be greater than or equal to
     /// `self.len() + additional`. Does nothing if capacity is already sufficient.
     ///
@@ -173,9 +192,9 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1)]);
     /// map.reserve(10);
     /// assert!(map.capacity() >= 11);
     /// ```
@@ -190,20 +209,17 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, i32> = (0..8).map(|x| (x, x*10)).collect();
-    /// map.retain(|&k, _| k % 2 == 0);
+    /// let mut map: KeyedVecSet<i32, (i32, i32)> = (0..8).map(|x| (x, x*10)).collect();
+    /// map.retain(|&v| v.0 % 2 == 0);
     /// assert_eq!(map.len(), 4);
     /// ```
-    pub fn retain<F>(&mut self, mut f: F)
+    pub fn retain<F>(&mut self, f: F)
     where
-        F: FnMut(&K, &V) -> bool,
+        F: FnMut(&V) -> bool,
     {
-        self.base.retain(|slot| {
-            let (key, value) = (&slot.0, &slot.1);
-            f(key, value)
-        });
+        self.base.retain(f);
     }
 
     /// Shrinks the capacity of the map as much as possible. It will drop down as much as possible
@@ -213,11 +229,11 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, i32> = VecMap::with_capacity(100);
-    /// map.insert(1, 2);
-    /// map.insert(3, 4);
+    /// let mut map: KeyedVecSet<i32, (i32, i32)> = KeyedVecSet::with_capacity(100);
+    /// map.insert((1, 2));
+    /// map.insert((3, 4));
     /// assert!(map.capacity() >= 100);
     /// map.shrink_to_fit();
     /// assert!(map.capacity() >= 2);
@@ -235,11 +251,11 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map: VecMap<i32, i32> = VecMap::with_capacity(100);
-    /// map.insert(1, 2);
-    /// map.insert(3, 4);
+    /// let mut map: KeyedVecSet<i32, (i32, i32)> = KeyedVecSet::with_capacity(100);
+    /// map.insert((1, 2));
+    /// map.insert((3, 4));
     /// assert!(map.capacity() >= 100);
     /// map.shrink_to(10);
     /// assert!(map.capacity() >= 10);
@@ -263,16 +279,17 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from([("a", 1), ("b", 2), ("c", 3)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2), ("c", 3)]);
     /// let map2 = map.split_off(1);
-    /// assert_eq!(map, VecMap::from([("a", 1)]));
-    /// assert_eq!(map2, VecMap::from([("b", 2), ("c", 3)]));
+    /// assert_eq!(map, KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1)]));
+    /// assert_eq!(map2, KeyedVecSet::<&str, (&str, u32)>::from_iter([("b", 2), ("c", 3)]));
     /// ```
-    pub fn split_off(&mut self, at: usize) -> VecMap<K, V> {
-        VecMap {
+    pub fn split_off(&mut self, at: usize) -> KeyedVecSet<K, V> {
+        KeyedVecSet {
             base: self.base.split_off(at),
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -290,18 +307,18 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::{vecmap, VecMap};
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut v = vecmap!["a" => 1, "b" => 2, "c" => 3];
-    /// let u: VecMap<_, _> = v.drain(1..).collect();
-    /// assert_eq!(v, vecmap!["a" => 1]);
-    /// assert_eq!(u, vecmap!["b" => 2, "c" => 3]);
+    /// let mut v = KeyedVecSet::<&str, (&str, i32)>::from_iter([("a", 1), ("b", 2), ("c", 3)]);
+    /// let u: KeyedVecSet<_, _> = v.drain(1..).collect();
+    /// assert_eq!(v, KeyedVecSet::<&str, (&str, i32)>::from([("a", 1)]));
+    /// assert_eq!(u, KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("c", 3)]));
     ///
     /// // A full range clears the vector, like `clear()` does
     /// v.drain(..);
-    /// assert_eq!(v, vecmap![]);
+    /// assert_eq!(v, KeyedVecSet::new());
     /// ```
-    pub fn drain<R>(&mut self, range: R) -> vec::Drain<'_, (K, V)>
+    pub fn drain<R>(&mut self, range: R) -> vec::Drain<'_, V>
     where
         R: RangeBounds<usize>,
     {
@@ -311,49 +328,67 @@ impl<K, V> VecMap<K, V> {
     /// Extracts a slice containing the map entries.
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let map = VecMap::from([("b", 2), ("a", 1), ("c", 3)]);
+    /// let map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("b", 2), ("a", 1), ("c", 3)]);
     /// let slice = map.as_slice();
     /// assert_eq!(slice, [("a", 1), ("b", 2), ("c", 3)]);
     /// ```
-    pub fn as_slice(&self) -> &[(K, V)] {
-        // SAFETY: `&[Slot<K, V>]` and `&[(K, V)]` have the same memory layout.
-        unsafe { &*(self.base.as_slice() as *const [Slot<K, V>] as *const [(K, V)]) }
+    pub fn as_slice(&self) -> &[V] {
+        self.base.as_slice()
+    }
+
+    /// Extracts a slice containing the map entries.
+    ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("b", 2), ("a", 1), ("c", 3)]);
+    /// let slice = unsafe {
+    ///     let slice = map.as_mut_slice();
+    ///     slice[0].1 = 10;
+    ///     &*slice
+    /// };
+    /// assert_eq!(slice, [("a", 10), ("b", 2), ("c", 3)]);
+    /// ```
+    pub unsafe fn as_mut_slice(&mut self) -> &mut [V] {
+        self.base.as_mut_slice()
     }
 
     /// Copies the map entries into a new `Vec<(K, V)>`.
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let map = VecMap::from([("b", 2), ("a", 1), ("c", 3)]);
+    /// let map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("b", 2), ("a", 1), ("c", 3)]);
     /// let vec = map.to_vec();
     /// assert_eq!(vec, [("a", 1), ("b", 2), ("c", 3)]);
     /// // Here, `map` and `vec` can be modified independently.
     /// ```
-    pub fn to_vec(&self) -> Vec<(K, V)>
+    pub fn to_vec(&self) -> Vec<V>
     where
-        K: Clone,
         V: Clone,
     {
-        self.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.base.to_vec()
     }
 
     /// Takes ownership of the map and returns its entries as a `Vec<(K, V)>`.
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let map = VecMap::from([("b", 2), ("a", 1), ("c", 3)]);
+    /// let map = KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("a", 1), ("c", 3)]);
     /// let vec = map.into_vec();
     /// assert_eq!(vec, [("a", 1), ("b", 2), ("c", 3)]);
     /// ```
-    pub fn into_vec(self) -> Vec<(K, V)> {
-        self.base.into_vec()
+    pub fn into_vec(self) -> Vec<V> {
+        self.base
     }
 
-    /// Takes ownership of provided vector and converts it into `VecMap`.
+    /// Takes ownership of provided vector and converts it into `KeyedVecSet`.
     ///
     /// # Safety
     ///
@@ -364,43 +399,37 @@ impl<K, V> VecMap<K, V> {
     /// # Example
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
     /// let mut vec = vec![("b", 2), ("a", 1), ("c", 3), ("b", 4)];
     /// vec.sort_by_key(|slot| slot.0);
     /// vec.dedup_by_key(|slot| slot.0);
     /// // SAFETY: We've just deduplicated the vector.
-    /// let map = unsafe { VecMap::from_vec_unchecked(vec) };
+    /// let map = unsafe { KeyedVecSet::from_vec_unchecked(vec) };
     ///
-    /// assert_eq!(map, VecMap::from([("b", 2), ("a", 1), ("c", 3)]));
+    /// assert_eq!(map, KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("a", 1), ("c", 3)]));
     /// ```
     ///
     /// [slice-sort-by-key]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
-    pub unsafe fn from_vec_unchecked(vec: Vec<(K, V)>) -> Self {
-        let base = KeyedVecSet::from_vec_unchecked(vec);
-        VecMap { base }
-    }
-
-    /// Returns based `KeyedVecSet`.
-    ///
-    /// Because `VecMap` itself never expose `&mut K`,
-    /// this is useful when you need to edit keys, which are basically unsafe operations.
-    pub fn as_mut_keyed_set(&mut self) -> &mut KeyedVecSet<K, (K, V)> {
-        &mut self.base
+    pub unsafe fn from_vec_unchecked(base: Vec<V>) -> Self {
+        KeyedVecSet {
+            base,
+            _marker: core::marker::PhantomData,
+        }
     }
 }
 
-// Lookup operations
-impl<K, V> VecMap<K, V> {
+// Lookup operations.
+impl<K, V> KeyedVecSet<K, V> {
     /// Return `true` if an equivalent to `key` exists in the map.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
     /// assert_eq!(map.contains_key(&1), true);
     /// assert_eq!(map.contains_key(&2), false);
     /// ```
@@ -408,38 +437,44 @@ impl<K, V> VecMap<K, V> {
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        self.base.contains_key(key)
+        self.binary_search(key).is_ok()
     }
 
     /// Get the first key-value pair.
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1), ("b", 2)]);
-    /// assert_eq!(map.first(), Some((&"a", &1)));
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]);
+    /// assert_eq!(map.first(), Some(&("a", 1)));
     /// ```
-    pub fn first(&self) -> Option<(&K, &V)> {
-        self.base.first().map(Self::refs)
+    pub fn first(&self) -> Option<&V> {
+        self.base.first()
     }
 
     /// Get the first key-value pair, with mutable access to the value.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1), ("b", 2)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]);
     ///
-    /// if let Some((_, v)) = map.first_mut() {
-    ///     *v = *v + 10;
+    /// unsafe {
+    ///     if let Some(v) = map.first_mut() {
+    ///         v.1 = v.1 + 10;
+    ///     }
     /// }
-    /// assert_eq!(map.first(), Some((&"a", &11)));
+    /// assert_eq!(map.first(), Some(&("a", 11)));
     /// ```
-    pub fn first_mut(&mut self) -> Option<(&K, &mut V)> {
-        unsafe { self.base.first_mut().map(Self::ref_mut) }
+    pub unsafe fn first_mut(&mut self) -> Option<&mut V> {
+        self.base.first_mut()
     }
 
     /// Get the last key-value pair.
@@ -447,34 +482,39 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1), ("b", 2)]);
-    /// assert_eq!(map.last(), Some((&"b", &2)));
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]);
+    /// assert_eq!(map.last(), Some(&("b", 2)));
     /// map.pop();
     /// map.pop();
     /// assert_eq!(map.last(), None);
     /// ```
-    pub fn last(&self) -> Option<(&K, &V)> {
-        self.base.last().map(Self::refs)
+    pub fn last(&self) -> Option<&V> {
+        self.base.last()
     }
 
     /// Get the last key-value pair, with mutable access to the value.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1), ("b", 2)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]);
     ///
-    /// if let Some((_, v)) = map.last_mut() {
-    ///     *v = *v + 10;
+    /// unsafe {
+    ///     if let Some(v) = map.last_mut() {
+    ///         v.1 += 10;
+    ///     }
     /// }
-    /// assert_eq!(map.last(), Some((&"b", &12)));
+    /// assert_eq!(map.last(), Some(&("b", 12)));
     /// ```
-    pub fn last_mut(&mut self) -> Option<(&K, &mut V)> {
-        unsafe { self.base.last_mut().map(Self::ref_mut) }
+    pub unsafe fn last_mut(&mut self) -> Option<&mut V> {
+        self.base.last_mut()
     }
 
     /// Return a reference to the value stored for `key`, if it is present, else `None`.
@@ -482,20 +522,21 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get(&1), Some(&"a"));
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
+    /// assert_eq!(map.get(&1), Some(&(1, "a")));
     /// assert_eq!(map.get(&2), None);
     /// ```
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        let slot = self.base.get(key)?;
-        Some(&slot.1)
+        let index = self.binary_search(key).ok()?;
+        Some(&self.base[index])
     }
 
     /// Return a mutable reference to the value stored for `key`, if it is present, else `None`.
@@ -503,22 +544,23 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
     /// if let Some(x) = map.get_mut(&1) {
-    ///     *x = "b";
+    ///     x.1 = "b";
     /// }
-    /// assert_eq!(map[&1], "b");
+    /// assert_eq!(map[&1], (1, "b"));
     /// ```
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        let slot = self.base.get_mut(key)?;
-        Some(&mut slot.1)
+        let index = self.binary_search(key).ok()?;
+        Some(&mut self.base[index])
     }
 
     /// Return references to the key-value pair stored at `index`, if it is present, else `None`.
@@ -526,34 +568,39 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get_index(0), Some((&1, &"a")));
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
+    /// assert_eq!(map.get_index(0), Some(&(1, "a")));
     /// assert_eq!(map.get_index(1), None);
     /// ```
-    pub fn get_index(&self, index: usize) -> Option<(&K, &V)> {
-        self.base.get_index(index).map(Self::refs)
+    pub fn get_index(&self, index: usize) -> Option<&V> {
+        self.base.get(index)
     }
 
     /// Return a reference to the key and a mutable reference to the value stored at `index`, if it
     /// is present, else `None`.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
-    /// if let Some((_, v)) = map.get_index_mut(0) {
-    ///     *v = "b";
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
+    /// unsafe {
+    ///     if let Some((_, v)) = map.get_index_mut(0) {
+    ///         *v = "b";
+    ///     }
     /// }
-    /// assert_eq!(map[0], "b");
+    /// assert_eq!(map[0].1, "b");
     /// ```
-    pub fn get_index_mut(&mut self, index: usize) -> Option<(&K, &mut V)> {
-        unsafe { self.base.get_index_mut(index).map(Self::ref_mut) }
+    pub unsafe fn get_index_mut(&mut self, index: usize) -> Option<&mut V> {
+        self.base.get_mut(index)
     }
 
     /// Returns a reference to an element or subslice, without doing bounds
@@ -566,9 +613,9 @@ impl<K, V> VecMap<K, V> {
     /// Calling this method with an out-of-bounds index is *[undefined behavior]*
     /// even if the resulting reference is not used.
     ///
-    /// [`get_index`]: VecMap::get_index
+    /// [`get_index`]: KeyedVecSet::get_index
     pub unsafe fn get_unchecked(&self, index: usize) -> &V {
-        &self.base.get_unchecked(index).1
+        self.base.get_unchecked(index)
     }
 
     /// Returns a mutable reference to an element or subslice, without doing
@@ -581,9 +628,9 @@ impl<K, V> VecMap<K, V> {
     /// Calling this method with an out-of-bounds index is *[undefined behavior]*
     /// even if the resulting reference is not used.
     ///
-    /// [`get_index_mut`]: VecMap::get_index_mut
+    /// [`get_index_mut`]: KeyedVecSet::get_index_mut
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
-        &mut self.base.get_unchecked_mut(index).1
+        self.base.get_unchecked_mut(index)
     }
 
     /// Return the index and references to the key-value pair stored for `key`, if it is present,
@@ -592,65 +639,52 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get_full(&1), Ok((0, &1, &"a")));
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
+    /// assert_eq!(map.get_full(&1), Ok((0, &(1, "a"))));
     /// assert_eq!(map.get_full(&2), Err(1));
     /// ```
-    pub fn get_full<Q>(&self, key: &Q) -> Result<(usize, &K, &V), usize>
+    pub fn get_full<Q>(&self, key: &Q) -> Result<(usize, &V), usize>
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        let (idx, slot) = self.base.get_full(key)?;
-        Ok((idx, &slot.0, &slot.1))
+        let index = self.binary_search(key)?;
+        Ok((index, &self.base[index]))
     }
 
     /// Return the index, a reference to the key and a mutable reference to the value stored for
     /// `key`, if it is present, else `None`.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// map.insert((1, "a"));
     ///
-    /// if let Ok((_, _, v)) = map.get_full_mut(&1) {
-    ///     *v = "b";
+    /// unsafe {
+    ///     if let Ok((_, v)) = map.get_full_mut(&1) {
+    ///         v.1 = "b";
+    ///     }
     /// }
-    /// assert_eq!(map.get(&1), Some(&"b"));
+    /// assert_eq!(map.get(&1), Some(&(1, "b")));
     /// ```
-    pub fn get_full_mut<Q>(&mut self, key: &Q) -> Result<(usize, &K, &mut V), usize>
+    pub unsafe fn get_full_mut<Q>(&mut self, key: &Q) -> Result<(usize, &mut V), usize>
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        let (idx, slot) = unsafe { self.base.get_full_mut(key) }?;
-        Ok((idx, &slot.0, &mut slot.1))
-    }
-
-    /// Return references to the key-value pair stored for `key`, if it is present, else `None`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let mut map = VecMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get_key_value(&1), Some((&1, &"a")));
-    /// assert_eq!(map.get_key_value(&2), None);
-    /// ```
-    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
-    where
-        K: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.base.get(key).map(Self::refs)
+        let index = self.binary_search(key)?;
+        Ok((index, &mut self.base[index]))
     }
 
     /// Return item index, if it exists in the map.
@@ -658,11 +692,11 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// map.insert("a", 10);
-    /// map.insert("b", 20);
+    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::new();
+    /// map.insert(("a", 10));
+    /// map.insert(("b", 20));
     /// assert_eq!(map.binary_search("a"), Ok(0));
     /// assert_eq!(map.binary_search("b"), Ok(1));
     /// assert_eq!(map.binary_search("c"), Err(2));
@@ -671,28 +705,30 @@ impl<K, V> VecMap<K, V> {
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        self.base.binary_search(key)
+        self.base
+            .binary_search_by(|slot| slot.key().borrow().cmp(key))
     }
 }
 
 // Removal operations.
-impl<K, V> VecMap<K, V> {
+impl<K, V> KeyedVecSet<K, V> {
     /// Removes the last element from the map and returns it, or [`None`] if it
     /// is empty.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([("a", 1), ("b", 2)]);
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2)]);
     /// assert_eq!(map.pop(), Some(("b", 2)));
     /// assert_eq!(map.pop(), Some(("a", 1)));
     /// assert!(map.is_empty());
     /// assert_eq!(map.pop(), None);
     /// ```
-    pub fn pop(&mut self) -> Option<(K, V)> {
+    pub fn pop(&mut self) -> Option<V> {
         self.base.pop()
     }
 
@@ -704,42 +740,23 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from_iter([(1, "a"), (2, "b"), (3, "c"), (4, "d")]);
-    /// assert_eq!(map.remove(&2), Some("b"));
+    /// let mut map = KeyedVecSet::<u32, (u32, &str)>::from_iter([(1, "a"), (2, "b"), (3, "c"), (4, "d")]);
+    /// assert_eq!(map.remove(&2), Some((2, "b")));
     /// assert_eq!(map.remove(&2), None);
-    /// assert_eq!(map, VecMap::from_iter([(1, "a"), (3, "c"), (4, "d")]));
+    /// assert_eq!(map, KeyedVecSet::<u32, (u32, &str)>::from([(1, "a"), (3, "c"), (4, "d")]));
     /// ```
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q> + Ord,
         Q: Ord + ?Sized,
+        V: Keyed<K>,
     {
-        self.base.remove(key).map(|slot| slot.1)
-    }
-
-    /// Remove and return the key-value pair equivalent to `key`.
-    ///
-    /// Like `Vec::remove`, the pair is removed by shifting all of the elements that follow it,
-    /// preserving their relative order. **This perturbs the index of all of those elements!**
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let mut map = VecMap::from_iter([(1, "a"), (2, "b"), (3, "c"), (4, "d")]);
-    /// assert_eq!(map.remove_entry(&2), Some((2, "b")));
-    /// assert_eq!(map.remove_entry(&2), None);
-    /// assert_eq!(map, VecMap::from_iter([(1, "a"), (3, "c"), (4, "d")]));
-    /// ```
-    pub fn remove_entry<Q>(&mut self, key: &Q) -> Option<(K, V)>
-    where
-        K: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.base.remove(key)
+        let key = key.borrow();
+        self.binary_search(key)
+            .ok()
+            .map(|index| self.remove_index(index))
     }
 
     /// Removes and returns the key-value pair at position `index` within the map, shifting all
@@ -752,21 +769,22 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut v = VecMap::from([("a", 1), ("b", 2), ("c", 3)]);
+    /// let mut v = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("b", 2), ("c", 3)]);
     /// assert_eq!(v.remove_index(1), ("b", 2));
-    /// assert_eq!(v, VecMap::from([("a", 1), ("c", 3)]));
+    /// assert_eq!(v, KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1), ("c", 3)]));
     /// ```
-    pub fn remove_index(&mut self, index: usize) -> (K, V) {
-        self.base.remove_index(index)
+    pub fn remove_index(&mut self, index: usize) -> V {
+        self.base.remove(index)
     }
 }
 
 // Insertion operations.
-impl<K, V> VecMap<K, V>
+impl<K, V> KeyedVecSet<K, V>
 where
     K: Ord,
+    V: Keyed<K>,
 {
     /// Insert a key-value pair in the map.
     ///
@@ -783,18 +801,18 @@ where
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// assert_eq!(map.insert(37, "a"), None);
+    /// let mut map = KeyedVecSet::<i32, (i32, &str)>::new();
+    /// assert_eq!(map.insert((37, "a")), None);
     /// assert_eq!(map.is_empty(), false);
     ///
-    /// map.insert(37, "b");
-    /// assert_eq!(map.insert(37, "c"), Some("b"));
-    /// assert_eq!(map[&37], "c");
+    /// map.insert((37, "b"));
+    /// assert_eq!(map.insert((37, "c")), Some((37, "b")));
+    /// assert_eq!(map[&37].1, "c");
     /// ```
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.insert_full(key, value).1
+    pub fn insert(&mut self, value: V) -> Option<V> {
+        self.insert_full(value).1
     }
 
     /// Insert a key-value pair in the map, and get their index.
@@ -812,17 +830,26 @@ where
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::new();
-    /// assert_eq!(map.insert_full("a", 1), (0, None));
-    /// assert_eq!(map.insert_full("b", 2), (1, None));
-    /// assert_eq!(map.insert_full("b", 3), (1, Some(2)));
-    /// assert_eq!(map["b"], 3);
+    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::new();
+    /// assert_eq!(map.insert_full(("a", 1)), (0, None));
+    /// assert_eq!(map.insert_full(("b", 2)), (1, None));
+    /// assert_eq!(map.insert_full(("b", 3)), (1, Some(("b", 2))));
+    /// assert_eq!(map["b"].1, 3);
     /// ```
-    pub fn insert_full(&mut self, key: K, value: V) -> (usize, Option<V>) {
-        let (index, removed) = self.base.insert_full((key, value));
-        (index, removed.map(|slot| slot.1))
+    pub fn insert_full(&mut self, value: V) -> (usize, Option<V>) {
+        let key = value.key();
+        match self.binary_search(&key) {
+            Ok(index) => {
+                let old_slot = mem::replace(&mut self.base[index], value);
+                (index, Some(old_slot))
+            }
+            Err(index) => {
+                self.base.insert(index, value);
+                (index, None)
+            }
+        }
     }
 
     /// Get the given key's corresponding entry in the map for insertion and/or in-place
@@ -831,17 +858,17 @@ where
     /// ## Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut letters = VecMap::new();
+    /// let mut letters = KeyedVecSet::<char, (char, usize)>::new();
     ///
     /// for ch in "a short treatise on fungi".chars() {
-    ///     letters.entry(ch).and_modify(|counter| *counter += 1).or_insert(1);
+    ///     unsafe { letters.entry(ch).and_modify(|pair| pair.1 += 1) }.or_insert((ch, 1));
     /// }
     ///
-    /// assert_eq!(letters[&'s'], 2);
-    /// assert_eq!(letters[&'t'], 3);
-    /// assert_eq!(letters[&'u'], 1);
+    /// assert_eq!(letters[&'s'].1, 2);
+    /// assert_eq!(letters[&'t'].1, 3);
+    /// assert_eq!(letters[&'u'].1, 1);
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
@@ -853,16 +880,16 @@ where
 }
 
 // Iterator adapters.
-impl<K, V> VecMap<K, V> {
+impl<K, V: Keyed<K>> KeyedVecSet<K, V> {
     /// An iterator visiting all key-value pairs in insertion order. The iterator element type is
     /// `(&'a K, &'a V)`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let map = VecMap::from([
+    /// let map = KeyedVecSet::<&str, (&str, i32)>::from([
     ///     ("a", 1),
     ///     ("b", 2),
     ///     ("c", 3),
@@ -872,35 +899,61 @@ impl<K, V> VecMap<K, V> {
     ///     println!("key: {key} val: {val}");
     /// }
     /// ```
-    pub fn iter(&self) -> Iter<'_, K, V> {
-        Iter::new(self.as_slice())
+    pub fn iter(&self) -> slice::Iter<'_, V> {
+        self.base.iter()
     }
 
     /// An iterator visiting all key-value pairs in insertion order, with mutable references to the
     /// values. The iterator element type is `(&'a K, &'a mut V)`.
     ///
+    /// # Safety
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = VecMap::from([
+    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::from([
     ///     ("a", 1),
     ///     ("b", 2),
     ///     ("c", 3),
     /// ]);
     ///
     /// // Update all values
-    /// for (_, val) in map.iter_mut() {
-    ///     *val *= 2;
+    /// unsafe {
+    ///     for (_, val) in map.iter_mut() {
+    ///         *val *= 2;
+    ///     }
     /// }
     ///
     /// for (key, val) in &map {
     ///     println!("key: {key} val: {val}");
     /// }
     /// ```
-    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        IterMut::new(unsafe { self.base.as_mut_slice() })
+    pub unsafe fn iter_mut(&mut self) -> impl core::iter::Iterator<Item = &mut V> {
+        self.base.iter_mut()
+    }
+
+    /// Creates a consuming iterator visiting all the values in insertion order. The object cannot
+    /// be used after calling this. The iterator element type is `V`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let map = KeyedVecSet::<&str, (&str, i32)>::from([
+    ///     ("a", 1),
+    ///     ("b", 2),
+    ///     ("c", 3),
+    /// ]);
+    ///
+    /// let mut vec: Vec<(&str, i32)> = map.into_iter().collect();
+    /// assert_eq!(vec, [("a", 1), ("b", 2), ("c", 3)]);
+    /// ```
+    pub fn into_iter(self) -> vec::IntoIter<V> {
+        self.base.into_iter()
     }
 
     /// An iterator visiting all keys in insertion order. The iterator element type is `&'a K`.
@@ -908,9 +961,9 @@ impl<K, V> VecMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use vecset::VecMap;
+    /// use vecset::KeyedVecSet;
     ///
-    /// let map = VecMap::from([
+    /// let map = KeyedVecSet::<&str, (&str, i32)>::from([
     ///     ("a", 1),
     ///     ("b", 2),
     ///     ("c", 3),
@@ -920,127 +973,7 @@ impl<K, V> VecMap<K, V> {
     ///     println!("{key}");
     /// }
     /// ```
-    pub fn keys(&self) -> Keys<'_, K, V> {
-        Keys::new(self.as_slice())
+    pub fn keys(&self) -> impl core::iter::Iterator<Item = &K> + '_ {
+        self.iter().map(|slot| slot.key())
     }
-
-    /// Creates a consuming iterator visiting all the keys in insertion order. The object cannot be
-    /// used after calling this. The iterator element type is `K`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let map = VecMap::from([
-    ///     ("a", 1),
-    ///     ("b", 2),
-    ///     ("c", 3),
-    /// ]);
-    ///
-    /// let mut vec: Vec<&str> = map.into_keys().collect();
-    /// assert_eq!(vec, ["a", "b", "c"]);
-    /// ```
-    pub fn into_keys(self) -> IntoKeys<K, V> {
-        IntoKeys::new(self.base.into_vec())
-    }
-
-    /// An iterator visiting all values in insertion order. The iterator element type is `&'a V`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let map = VecMap::from([
-    ///     ("a", 1),
-    ///     ("b", 2),
-    ///     ("c", 3),
-    /// ]);
-    ///
-    /// for val in map.values() {
-    ///     println!("{val}");
-    /// }
-    /// ```
-    pub fn values(&self) -> Values<'_, K, V> {
-        Values::new(self.as_slice())
-    }
-
-    /// An iterator visiting all values mutably in insertion order. The iterator element type is
-    /// `&'a mut V`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let mut map = VecMap::from([
-    ///     ("a", 1),
-    ///     ("b", 2),
-    ///     ("c", 3),
-    /// ]);
-    ///
-    /// for val in map.values_mut() {
-    ///     *val = *val + 10;
-    /// }
-    ///
-    /// for val in map.values() {
-    ///     println!("{val}");
-    /// }
-    /// ```
-    pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
-        ValuesMut::new(unsafe { self.base.as_mut_slice() })
-    }
-
-    /// Creates a consuming iterator visiting all the values in insertion order. The object cannot
-    /// be used after calling this. The iterator element type is `V`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::VecMap;
-    ///
-    /// let map = VecMap::from([
-    ///     ("a", 1),
-    ///     ("b", 2),
-    ///     ("c", 3),
-    /// ]);
-    ///
-    /// let mut vec: Vec<i32> = map.into_values().collect();
-    /// assert_eq!(vec, [1, 2, 3]);
-    /// ```
-    pub fn into_values(self) -> IntoValues<K, V> {
-        IntoValues::new(self.base.into_vec())
-    }
-}
-
-// https://github.com/martinohmann/vecmap-rs/issues/18
-//
-// If `Slot<K, V>` does not have the same memory layout as `(K, V)`, e.g. due to possible field
-// reordering, this test will:
-//
-// - Segfault with "SIGSEGV: invalid memory reference" in the `unsafe` block in `VecMap::as_slice`
-//   when run via `cargo test`.
-// - Trigger a miri error when run via `cargo +nightly miri test`.
-#[test]
-fn issue_18() {
-    use alloc::string::String;
-    use core::{fmt, mem};
-
-    fn test<K, V>(slice: &[(K, V)])
-    where
-        K: Clone + Ord + fmt::Debug,
-        V: Clone + PartialEq + fmt::Debug,
-    {
-        assert_eq!(mem::size_of::<Slot<K, V>>(), mem::size_of::<(K, V)>());
-        assert_eq!(mem::align_of::<Slot<K, V>>(), mem::align_of::<(K, V)>());
-
-        let map = VecMap::from(slice);
-        assert_eq!(map.as_slice(), slice);
-    }
-
-    test(&[(1i64, String::from("foo")), (2, String::from("bar"))]);
-    test(&[(String::from("bar"), 2), (String::from("foo"), 1i64)]);
-    test(&[(false, 2), (true, 1i64)]);
-    test(&[(1i64, true), (2, false)]);
 }

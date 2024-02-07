@@ -1,12 +1,13 @@
-use super::VecSet;
+use super::{Keyed, KeyedVecSet};
 use core::fmt;
 use core::marker::PhantomData;
 use serde::de::{self, value::SeqDeserializer};
 use serde::ser;
 
-impl<T> ser::Serialize for VecSet<T>
+impl<K, V> ser::Serialize for KeyedVecSet<K, V>
 where
-    T: ser::Serialize + Ord,
+    K: ser::Serialize + Ord,
+    V: ser::Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -16,21 +17,23 @@ where
     }
 }
 
-impl<'de, T> de::Deserialize<'de> for VecSet<T>
+impl<'de, K, V> de::Deserialize<'de> for KeyedVecSet<K, V>
 where
-    T: de::Deserialize<'de> + Ord,
+    K: de::Deserialize<'de> + Ord,
+    V: de::Deserialize<'de> + Keyed<K>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        struct VecSetVisitor<T>(PhantomData<T>);
+        struct KeyedVecSetVisitor<K, V>(PhantomData<(K, V)>);
 
-        impl<'de, T> de::Visitor<'de> for VecSetVisitor<T>
+        impl<'de, K, V> de::Visitor<'de> for KeyedVecSetVisitor<K, V>
         where
-            T: de::Deserialize<'de> + Ord,
+            K: de::Deserialize<'de> + Ord,
+            V: de::Deserialize<'de> + Keyed<K>,
         {
-            type Value = VecSet<T>;
+            type Value = KeyedVecSet<K, V>;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
                 fmt.write_str("a sequence")
@@ -40,7 +43,7 @@ where
             where
                 A: de::SeqAccess<'de>,
             {
-                let mut values = VecSet::with_capacity(seq.size_hint().unwrap_or(0));
+                let mut values = KeyedVecSet::with_capacity(seq.size_hint().unwrap_or(0));
 
                 while let Some(element) = seq.next_element()? {
                     values.insert(element);
@@ -50,13 +53,14 @@ where
             }
         }
 
-        deserializer.deserialize_seq(VecSetVisitor(PhantomData))
+        deserializer.deserialize_seq(KeyedVecSetVisitor(PhantomData))
     }
 }
 
-impl<'de, T, E> de::IntoDeserializer<'de, E> for VecSet<T>
+impl<'de, K, V, E> de::IntoDeserializer<'de, E> for KeyedVecSet<K, V>
 where
-    T: de::IntoDeserializer<'de, E> + Ord,
+    K: de::IntoDeserializer<'de, E> + Ord,
+    V: de::IntoDeserializer<'de, E>,
     E: de::Error,
 {
     type Deserializer = SeqDeserializer<<Self as IntoIterator>::IntoIter, E>;
@@ -73,20 +77,29 @@ mod test {
 
     #[test]
     fn ser_de_empty() {
-        let set = VecSet::<&str>::new();
-        assert_tokens(&set, &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
+        let map = KeyedVecSet::<u8, u8>::new();
+        assert_tokens(&map, &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
     }
 
     #[test]
     fn ser_de() {
-        let set = VecSet::from(["a", "b", "c"]);
+        let map = KeyedVecSet::<&str, (&str, i32)>::from([("a", 1), ("b", 2), ("c", 3)]);
         assert_tokens(
-            &set,
+            &map,
             &[
                 Token::Seq { len: Some(3) },
+                Token::Tuple { len: 2 },
                 Token::BorrowedStr("a"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
                 Token::BorrowedStr("b"),
+                Token::I32(2),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
                 Token::BorrowedStr("c"),
+                Token::I32(3),
+                Token::TupleEnd,
                 Token::SeqEnd,
             ],
         );

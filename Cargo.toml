@@ -1,22 +1,18 @@
 [package]
-name = "vecmap-rs"
-version = "0.2.1"
-authors = ["Martin Ohmann <martinohmann@gmail.com>"]
+name = "vecset"
+version = "0.0.1"
+authors = ["Jeong, Yunwon <jeong@youknowone.org>"]
 license = "MIT OR Apache-2.0"
-description = "A vector-based map and set implementation"
-repository = "https://github.com/martinohmann/vecmap-rs"
+description = "A vector-based sorted map, set and keyed-set implementation"
+repository = "https://github.com/youknowone/vecset"
 documentation = "https://docs.rs/vecmap-rs/"
-keywords = ["vector", "map", "set", "vec", "no-std"]
+keywords = ["vector", "map", "set", "vec", "keyed-set", "VecMap", "VecSet", "no-std"]
 categories = ["data-structures", "no-std"]
 readme = "README.md"
 edition = "2021"
 exclude = [
     ".github/",
 ]
-
-[lib]
-name = "vecmap"
-path = "src/lib.rs"
 
 [features]
 default = []

@@ -1,6 +1,6 @@
 # vecset
 
-[![Build Status](https://github.com/youknowone/vecset/workflows/ci/badge.svg)](https://github.com/youknowone/vecset/actions?query=workflow%3Aci)
+[![Build Status](https://github.com/youknowone/vecset-rs/workflows/ci/badge.svg)](https://github.com/youknowone/vecset-rs/actions?query=workflow%3Aci)
 [![crates.io](https://img.shields.io/crates/v/vecset)](https://crates.io/crates/vecset)
 [![docs.rs](https://img.shields.io/docsrs/vecset)](https://docs.rs/vecset)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)

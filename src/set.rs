@@ -375,7 +375,7 @@ impl<T> VecSet<T> {
     ///
     /// [slice-sort]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort
     pub unsafe fn from_vec_unchecked(vec: Vec<T>) -> Self {
-        let base = KeyedVecSet::from_vec_unchecked(vec);
+        let base = KeyedVecSet::from_vec_maybe_unsorted(vec);
         VecSet { base }
     }
 

@@ -370,14 +370,14 @@ impl<K, V> VecMap<K, V> {
     /// vec.sort_by_key(|slot| slot.0);
     /// vec.dedup_by_key(|slot| slot.0);
     /// // SAFETY: We've just deduplicated the vector.
-    /// let map = unsafe { VecMap::from_vec_unchecked(vec) };
+    /// let map = VecMap::from_vec_maybe_unsorted(vec);
     ///
     /// assert_eq!(map, VecMap::from([("b", 2), ("a", 1), ("c", 3)]));
     /// ```
     ///
     /// [slice-sort-by-key]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
-    pub unsafe fn from_vec_unchecked(vec: Vec<(K, V)>) -> Self {
-        let base = KeyedVecSet::from_vec_unchecked(vec);
+    pub fn from_vec_maybe_unsorted(vec: Vec<(K, V)>) -> Self {
+        let base = KeyedVecSet::from_vec_maybe_unsorted(vec);
         VecMap { base }
     }
 

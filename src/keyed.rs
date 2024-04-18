@@ -405,13 +405,13 @@ impl<K, V> KeyedVecSet<K, V> {
     /// vec.sort_by_key(|slot| slot.0);
     /// vec.dedup_by_key(|slot| slot.0);
     /// // SAFETY: We've just deduplicated the vector.
-    /// let map = unsafe { KeyedVecSet::from_vec_unchecked(vec) };
+    /// let map = KeyedVecSet::from_vec_maybe_unsorted(vec);
     ///
     /// assert_eq!(map, KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("a", 1), ("c", 3)]));
     /// ```
     ///
     /// [slice-sort-by-key]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
-    pub unsafe fn from_vec_unchecked(base: Vec<V>) -> Self {
+    pub fn from_vec_maybe_unsorted(base: Vec<V>) -> Self {
         KeyedVecSet {
             base,
             _marker: core::marker::PhantomData,
@@ -795,7 +795,7 @@ where
     /// If no equivalent key existed in the map: the new key-value pair is inserted, last in
     /// order, and `None` is returned.
     ///
-    /// See also [`entry`](#method.entry) if you you want to insert *or* modify or if you need to
+    /// See also [`entry`](#method.entry) if you want to insert *or* modify or if you need to
     /// get the index of the corresponding key-value pair.
     ///
     /// # Examples
@@ -815,6 +815,69 @@ where
         self.insert_full(value).1
     }
 
+    fn check_sorted(&self, index: usize) -> bool {
+        let key = self.base[index].key();
+        if index > 0 {
+            if self.base[index - 1].key() > key {
+                return false;
+            }
+        }
+        if index + 1 < self.base.len() {
+            if self.base[index + 1].key() < key {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Insert a key-value pair in the map without sorting validation.
+    ///
+    /// The given `index` must be vacant.
+    ///
+    /// See also [`replace_at_maybe_unsorted`](#method.replace_at_maybe_unsorted) if you want to replace
+    /// existing slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::new();
+    /// map.insert_at_maybe_unsorted(0, ("b", 2));
+    /// map.insert_at_maybe_unsorted(1, ("c", 3));
+    /// map.insert_at_maybe_unsorted(0, ("a", 1));
+    /// assert_eq!(map["b"].1, 2);
+    /// ```
+    pub fn insert_at_maybe_unsorted(&mut self, index: usize, value: V) {
+        self.base.insert(index, value);
+        #[cfg(debug_assertions)]
+        assert!(self.check_sorted(index));
+    }
+
+    /// Replace a key-value pair in the map without sorting validation.
+    ///
+    /// The given `index` must be occupied.
+    ///
+    /// See also [`insert_at_maybe_unsorted`](#method.insert_at_maybe_unsorted) if you want to insert
+    /// a new key-value pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::from_vec_maybe_unsorted(vec![("a", 10), ("b", 20), ("c", 30)]);
+    /// let replaced = map.replace_at_maybe_unsorted(1, ("b", 15));
+    /// assert_eq!(replaced.1, 20);
+    /// assert_eq!(map["b"].1, 15);
+    /// ```
+    pub fn replace_at_maybe_unsorted(&mut self, index: usize, value: V) -> V {
+        let old_slot = mem::replace(&mut self.base[index], value);
+        #[cfg(debug_assertions)]
+        assert!(self.check_sorted(index));
+        old_slot
+    }
+
     /// Insert a key-value pair in the map, and get their index.
     ///
     /// If an equivalent key already exists in the map: the key remains and
@@ -824,7 +887,7 @@ where
     /// If no equivalent key existed in the map: the new key-value pair is
     /// inserted, last in order, and `(index, None)` is returned.
     ///
-    /// See also [`entry`](#method.entry) if you you want to insert *or* modify
+    /// See also [`entry`](#method.entry) if you want to insert *or* modify
     /// or if you need to get the index of the corresponding key-value pair.
     ///
     /// # Examples

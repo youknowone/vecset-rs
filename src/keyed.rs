@@ -935,7 +935,30 @@ where
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
-        match self.binary_search(&key) {
+        self.entry_at_maybe_unsorted(self.binary_search(&key), key)
+    }
+
+    /// Get the entry in the map for insertion and/or in-place
+    /// manipulation by given index and key. The index must be a valid result of [`binary_search`].
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut letters = KeyedVecSet::<char, (char, usize)>::new();
+    ///
+    /// for ch in "a short treatise on fungi".chars() {
+    ///     unsafe { letters.entry(ch).and_modify(|pair| pair.1 += 1) }.or_insert((ch, 1));
+    /// }
+    ///
+    /// assert_eq!(letters[&'s'].1, 2);
+    /// assert_eq!(letters[&'t'].1, 3);
+    /// assert_eq!(letters[&'u'].1, 1);
+    /// assert_eq!(letters.get(&'y'), None);
+    /// ```
+    pub fn entry_at_maybe_unsorted(&mut self, index: Result<usize, usize>, key: K) -> Entry<K, V> {
+        match index {
             Ok(index) => Entry::Occupied(OccupiedEntry::new(self, key, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(self, key, index)),
         }

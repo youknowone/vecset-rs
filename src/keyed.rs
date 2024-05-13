@@ -753,7 +753,6 @@ impl<K, V> KeyedVecSet<K, V> {
         Q: Ord + ?Sized,
         V: Keyed<K>,
     {
-        let key = key.borrow();
         self.binary_search(key)
             .ok()
             .map(|index| self.remove_index(index))

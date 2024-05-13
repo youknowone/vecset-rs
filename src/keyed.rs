@@ -938,7 +938,7 @@ where
     }
 
     /// Get the entry in the map for insertion and/or in-place
-    /// manipulation by given index and key. The index must be a valid result of [`binary_search`].
+    /// manipulation by given index and key. The index must be a valid result of [`Self::binary_search`].
     ///
     /// ## Examples
     ///

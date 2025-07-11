@@ -838,21 +838,6 @@ where
         self.insert_full(value).1
     }
 
-    fn check_sorted(&self, index: usize) -> bool {
-        let key = self.base[index].key();
-        if index > 0 {
-            if self.base[index - 1].key() > key {
-                return false;
-            }
-        }
-        if index + 1 < self.base.len() {
-            if self.base[index + 1].key() < key {
-                return false;
-            }
-        }
-        true
-    }
-
     /// Insert a key-value pair in the map without sorting validation.
     ///
     /// The given `index` must be vacant.
@@ -1088,5 +1073,27 @@ impl<K, V: Keyed<K>> KeyedVecSet<K, V> {
     /// ```
     pub fn keys(&self) -> impl core::iter::Iterator<Item = &K> + '_ {
         self.iter().map(|slot| slot.key())
+    }
+}
+
+// Private methods
+impl<K, V> KeyedVecSet<K, V>
+where
+    K: Ord,
+    V: Keyed<K>,
+{
+    fn check_sorted(&self, index: usize) -> bool {
+        let key = self.base[index].key();
+        if index > 0 {
+            if self.base[index - 1].key() > key {
+                return false;
+            }
+        }
+        if index + 1 < self.base.len() {
+            if self.base[index + 1].key() < key {
+                return false;
+            }
+        }
+        true
     }
 }

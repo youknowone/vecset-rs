@@ -91,7 +91,7 @@ where
     fn from(mut vec: Vec<V>) -> Self {
         vec.sort_by(|a, b| a.key().cmp(b.key()));
         vec.dedup_by(|a, b| (*a).key() == (*b).key());
-        unsafe { Self::from_vec_maybe_unsorted(vec) }
+        unsafe { Self::from_sorted_vec(vec) }
     }
 }
 

@@ -17,7 +17,7 @@ impl<'a, K, V> IntoIterator for &'a KeyedVecSet<K, V> {
     type IntoIter = <&'a Vec<V> as core::iter::IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&self.base).into_iter()
+        self.base.iter()
     }
 }
 
@@ -27,6 +27,6 @@ impl<'a, K, V> IntoIterator for &'a mut KeyedVecSet<K, V> {
     type IntoIter = <&'a mut Vec<V> as core::iter::IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&mut self.base).into_iter()
+        self.base.iter_mut()
     }
 }

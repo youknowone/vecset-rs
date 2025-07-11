@@ -44,6 +44,10 @@ where
     /// Ensures a value is in the entry by inserting the default if empty, and returns a mutable
     /// reference to the value in the entry.
     ///
+    /// # Panics
+    ///
+    /// Panics if the key of the provided value doesn't match the entry's key.
+    ///
     /// # Examples
     ///
     /// ```
@@ -67,6 +71,10 @@ where
 
     /// Ensures a value is in the entry by inserting the result of the default function if empty,
     /// and returns a mutable reference to the value in the entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key of the value returned by the function doesn't match the entry's key.
     ///
     /// # Examples
     ///
@@ -101,6 +109,10 @@ where
     /// The reference to the moved key is provided so that cloning or copying the key is
     /// unnecessary, unlike with `.or_insert_with(|| ... )`.
     ///
+    /// # Panics
+    ///
+    /// Panics if the key of the value returned by the function doesn't match the entry's key.
+    ///
     /// # Examples
     ///
     /// ```
@@ -128,6 +140,10 @@ where
 
     /// Ensures a value is in the entry by inserting if it was vacant, and returns
     /// the index of the entry and whether it was inserted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key of the provided value doesn't match the entry's key.
     ///
     /// # Examples
     ///
@@ -160,6 +176,11 @@ where
     ///
     /// This version doesn't check if the key matches.
     ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the key of the provided value matches the entry's key.
+    /// Failing to do so may result in a map with unsorted keys or duplicate keys.
+    ///
     /// # Examples
     ///
     /// ```
@@ -187,6 +208,10 @@ where
 
     /// Ensures a value is in the entry by inserting the result of the default function if empty,
     /// and returns the index of the entry and whether it was inserted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key of the value returned by the function doesn't match the entry's key.
     ///
     /// # Examples
     ///
@@ -222,6 +247,11 @@ where
     /// and returns the index of the entry and whether it was inserted.
     ///
     /// This version doesn't check if the key matches.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the key of the value returned by the function matches the entry's key.
+    /// Failing to do so may result in a map with unsorted keys or duplicate keys.
     ///
     /// # Examples
     ///
@@ -317,7 +347,7 @@ where
     {
         match self {
             Entry::Occupied(mut o) => {
-                f(o.get_mut());
+                unsafe { f(o.get_mut()) };
                 Entry::Occupied(o)
             }
             x => x,
@@ -420,6 +450,10 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// # Safety
     /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
+    /// # Panics
+    ///
+    /// Panics if the key doesn't exist (which should not happen for an `OccupiedEntry`).
+    ///
     /// # Examples
     ///
     /// ```
@@ -441,7 +475,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// assert_eq!(map["poneyland"].1, 24);
     /// ```
     pub unsafe fn get_mut(&mut self) -> &mut V {
-        self.map.get_index_mut(self.index).expect("unexisting key")
+        unsafe { self.map.get_index_mut(self.index).expect("unexisting key") }
     }
 
     /// Converts the `OccupiedEntry` into a mutable reference to the value in the entry
@@ -453,6 +487,10 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     ///
     /// # Safety
     /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key doesn't exist (which should not happen for an `OccupiedEntry`).
     ///
     /// # Examples
     ///
@@ -471,7 +509,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
     /// assert_eq!(map["poneyland"].1, 22);
     /// ```
     pub unsafe fn into_mut(self) -> &'a mut V {
-        self.map.get_index_mut(self.index).expect("unexisting key")
+        unsafe { self.map.get_index_mut(self.index).expect("unexisting key") }
     }
 
     /// Sets the value of the entry, and returns the entry's old value.

@@ -318,8 +318,8 @@ impl<K, V> VecMap<K, V> {
     /// assert_eq!(slice, [("a", 1), ("b", 2), ("c", 3)]);
     /// ```
     pub fn as_slice(&self) -> &[(K, V)] {
-        // SAFETY: `&[Slot<K, V>]` and `&[(K, V)]` have the same memory layout.
-        unsafe { &*(self.base.as_slice() as *const [Slot<K, V>] as *const [(K, V)]) }
+        // Slot<K, V> is just an alias for (K, V)
+        self.base.as_slice()
     }
 
     /// Copies the map entries into a new `Vec<(K, V)>`.
@@ -377,7 +377,7 @@ impl<K, V> VecMap<K, V> {
     ///
     /// [slice-sort-by-key]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
     pub unsafe fn from_sorted_vec(vec: Vec<(K, V)>) -> Self {
-        let base = KeyedVecSet::from_sorted_vec(vec);
+        let base = unsafe { KeyedVecSet::from_sorted_vec(vec) };
         VecMap { base }
     }
 
@@ -568,7 +568,7 @@ impl<K, V> VecMap<K, V> {
     ///
     /// [`get_index`]: VecMap::get_index
     pub unsafe fn get_unchecked(&self, index: usize) -> &V {
-        &self.base.get_unchecked(index).1
+        &unsafe { self.base.get_unchecked(index) }.1
     }
 
     /// Returns a mutable reference to an element or subslice, without doing
@@ -583,11 +583,15 @@ impl<K, V> VecMap<K, V> {
     ///
     /// [`get_index_mut`]: VecMap::get_index_mut
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
-        &mut self.base.get_unchecked_mut(index).1
+        &mut unsafe { self.base.get_unchecked_mut(index) }.1
     }
 
     /// Return the index and references to the key-value pair stored for `key`, if it is present,
     /// else `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(index)` if the key is not found, where `index` is the position where the key would be inserted.
     ///
     /// # Examples
     ///
@@ -610,6 +614,10 @@ impl<K, V> VecMap<K, V> {
 
     /// Return the index, a reference to the key and a mutable reference to the value stored for
     /// `key`, if it is present, else `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(index)` if the key is not found, where `index` is the position where the key would be inserted.
     ///
     /// # Examples
     ///
@@ -654,6 +662,10 @@ impl<K, V> VecMap<K, V> {
     }
 
     /// Return item index, if it exists in the map.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(index)` if the key is not found, where `index` is the position where the key would be inserted.
     ///
     /// # Examples
     ///

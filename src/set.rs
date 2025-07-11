@@ -168,6 +168,30 @@ impl<T> VecSet<T> {
         self.base.reserve(additional);
     }
 
+    /// Reserves the minimum capacity for at least `additional` more elements to be inserted in
+    /// the given `VecSet<T>`. Does nothing if the capacity is already sufficient.
+    ///
+    /// Note that the allocator may give the collection more space than it requests. Therefore,
+    /// capacity can not be relied upon to be precisely minimal. Prefer [`Self::reserve`] if future
+    /// insertions are expected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity exceeds `isize::MAX` bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let mut set = VecSet::from_iter(["a"]);
+    /// set.reserve_exact(10);
+    /// assert!(set.capacity() >= 11);
+    /// ```
+    pub fn reserve_exact(&mut self, additional: usize) {
+        self.base.reserve_exact(additional);
+    }
+
     /// Retains only the elements specified by the predicate.
     ///
     /// In other words, remove all elements `e` for which `f(&e)` returns `false`.
@@ -539,6 +563,25 @@ impl<T> VecSet<T> {
     {
         self.base.binary_search(value)
     }
+
+    /// Return the index of the value in the set, if it exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let set = VecSet::from([1, 2, 3]);
+    /// assert_eq!(set.get_index_of(&2), Some(1));
+    /// assert_eq!(set.get_index_of(&4), None);
+    /// ```
+    pub fn get_index_of<Q>(&self, value: &Q) -> Option<usize>
+    where
+        T: Borrow<Q> + Ord,
+        Q: ?Sized + Ord,
+    {
+        self.binary_search(value).ok()
+    }
 }
 
 // Removal operations.
@@ -656,6 +699,59 @@ where
     /// ```
     pub fn insert(&mut self, value: T) -> bool {
         self.base.insert(value).is_none()
+    }
+
+    /// Adds a value to the set, and returns the index where the value was inserted.
+    ///
+    /// Returns `(index, did_insert)`:
+    /// - `index` is the position where the value is located
+    /// - `did_insert` is `true` if the value was newly inserted, `false` if it already existed
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let mut set = VecSet::new();
+    ///
+    /// assert_eq!(set.insert_full(2), (0, true));
+    /// assert_eq!(set.insert_full(2), (0, false));
+    /// assert_eq!(set.insert_full(1), (0, true));
+    /// assert_eq!(set.len(), 2);
+    /// ```
+    pub fn insert_full(&mut self, value: T) -> (usize, bool) {
+        let (index, old_value) = self.base.insert_full(value);
+        (index, old_value.is_none())
+    }
+
+    /// Insert a value at the given index without any checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    /// - The index is within bounds (0 <= index <= len)
+    /// - The value at the given index maintains the sorted order
+    /// - The value does not already exist in the set
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index > len`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let mut set = VecSet::new();
+    /// unsafe {
+    ///     set.insert_at_maybe_unsorted(0, 1);
+    ///     set.insert_at_maybe_unsorted(1, 3);
+    ///     set.insert_at_maybe_unsorted(1, 2); // insert between 1 and 3
+    /// }
+    /// assert_eq!(set.as_slice(), &[1, 2, 3]);
+    /// ```
+    pub unsafe fn insert_at_maybe_unsorted(&mut self, index: usize, value: T) {
+        self.base.insert_at_maybe_unsorted(index, value);
     }
 }
 

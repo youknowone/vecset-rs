@@ -202,6 +202,30 @@ impl<K, V> KeyedVecSet<K, V> {
         self.base.reserve(additional);
     }
 
+    /// Reserves the minimum capacity for at least `additional` more elements to be inserted in
+    /// the given `KeyedVecSet<K, V>`. Does nothing if the capacity is already sufficient.
+    ///
+    /// Note that the allocator may give the collection more space than it requests. Therefore,
+    /// capacity can not be relied upon to be precisely minimal. Prefer [`Self::reserve`] if future
+    /// insertions are expected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity exceeds `isize::MAX` bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::<&str, (&str, u32)>::from_iter([("a", 1)]);
+    /// map.reserve_exact(10);
+    /// assert!(map.capacity() >= 11);
+    /// ```
+    pub fn reserve_exact(&mut self, additional: usize) {
+        self.base.reserve_exact(additional);
+    }
+
     /// Retains only the elements specified by the predicate.
     ///
     /// In other words, remove all pairs `(k, v)` for which `f(&k, &mut v)` returns `false`.
@@ -405,13 +429,13 @@ impl<K, V> KeyedVecSet<K, V> {
     /// vec.sort_by_key(|slot| slot.0);
     /// vec.dedup_by_key(|slot| slot.0);
     /// // SAFETY: We've just deduplicated the vector.
-    /// let map = KeyedVecSet::from_vec_maybe_unsorted(vec);
+    /// let map = unsafe { KeyedVecSet::from_vec_maybe_unsorted(vec) };
     ///
     /// assert_eq!(map, KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("a", 1), ("c", 3)]));
     /// ```
     ///
     /// [slice-sort-by-key]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
-    pub fn from_vec_maybe_unsorted(base: Vec<V>) -> Self {
+    pub unsafe fn from_vec_maybe_unsorted(base: Vec<V>) -> Self {
         KeyedVecSet {
             base,
             _marker: core::marker::PhantomData,
@@ -842,15 +866,16 @@ where
     /// use vecset::KeyedVecSet;
     ///
     /// let mut map = KeyedVecSet::<&str, (&str, i32)>::new();
-    /// map.insert_at_maybe_unsorted(0, ("b", 2));
-    /// map.insert_at_maybe_unsorted(1, ("c", 3));
-    /// map.insert_at_maybe_unsorted(0, ("a", 1));
+    /// unsafe {
+    ///     map.insert_at_maybe_unsorted(0, ("b", 2));
+    ///     map.insert_at_maybe_unsorted(1, ("c", 3));
+    ///     map.insert_at_maybe_unsorted(0, ("a", 1));
+    /// }
     /// assert_eq!(map["b"].1, 2);
     /// ```
-    pub fn insert_at_maybe_unsorted(&mut self, index: usize, value: V) {
+    pub unsafe fn insert_at_maybe_unsorted(&mut self, index: usize, value: V) {
         self.base.insert(index, value);
-        #[cfg(debug_assertions)]
-        assert!(self.check_sorted(index));
+        debug_assert!(self.check_sorted(index));
     }
 
     /// Replace a key-value pair in the map without sorting validation.
@@ -865,15 +890,14 @@ where
     /// ```
     /// use vecset::KeyedVecSet;
     ///
-    /// let mut map = KeyedVecSet::<&str, (&str, i32)>::from_vec_maybe_unsorted(vec![("a", 10), ("b", 20), ("c", 30)]);
-    /// let replaced = map.replace_at_maybe_unsorted(1, ("b", 15));
+    /// let mut map = unsafe { KeyedVecSet::<&str, (&str, i32)>::from_vec_maybe_unsorted(vec![("a", 10), ("b", 20), ("c", 30)]) };
+    /// let replaced = unsafe { map.replace_at_maybe_unsorted(1, ("b", 15)) };
     /// assert_eq!(replaced.1, 20);
     /// assert_eq!(map["b"].1, 15);
     /// ```
-    pub fn replace_at_maybe_unsorted(&mut self, index: usize, value: V) -> V {
+    pub unsafe fn replace_at_maybe_unsorted(&mut self, index: usize, value: V) -> V {
         let old_slot = mem::replace(&mut self.base[index], value);
-        #[cfg(debug_assertions)]
-        assert!(self.check_sorted(index));
+        debug_assert!(self.check_sorted(index));
         old_slot
     }
 
@@ -934,7 +958,7 @@ where
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
-        self.entry_at_maybe_unsorted(self.binary_search(&key), key)
+        unsafe { self.entry_at_maybe_unsorted(self.binary_search(&key), key) }
     }
 
     /// Get the entry in the map for insertion and/or in-place
@@ -956,7 +980,11 @@ where
     /// assert_eq!(letters[&'u'].1, 1);
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
-    pub fn entry_at_maybe_unsorted(&mut self, index: Result<usize, usize>, key: K) -> Entry<K, V> {
+    pub unsafe fn entry_at_maybe_unsorted(
+        &mut self,
+        index: Result<usize, usize>,
+        key: K,
+    ) -> Entry<K, V> {
         match index {
             Ok(index) => Entry::Occupied(OccupiedEntry::new(self, key, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(self, key, index)),

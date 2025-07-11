@@ -181,6 +181,34 @@ impl<'a, K, V> Entry<'a, K, V> {
             Entry::Vacant(entry) => entry.insert(V::default()),
         }
     }
+
+    /// Ensures a value is in the entry by inserting if it was vacant, and returns
+    /// the index of the entry and whether it was inserted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecMap;
+    ///
+    /// let mut map = VecMap::new();
+    /// let (index, inserted) = map.entry("a").or_insert_full(1);
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, true);
+    ///
+    /// let (index, inserted) = map.entry("a").or_insert_full(2);
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, false);
+    /// ```
+    pub fn or_insert_full(self, value: V) -> (usize, bool) {
+        match self {
+            Entry::Occupied(e) => (e.index, false),
+            Entry::Vacant(e) => {
+                let index = e.index;
+                e.map.base.base.insert(index, (e.key, value));
+                (index, true)
+            }
+        }
+    }
 }
 
 /// A view into an occupied entry in a `VecMap`. It is part of the [`Entry`] enum.
@@ -440,7 +468,7 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// assert_eq!(map.entry("poneyland").index(), 0);
     /// ```
     pub fn index(&self) -> usize {
-        self.map.len()
+        self.index
     }
 
     /// Take ownership of the key.

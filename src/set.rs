@@ -1,5 +1,6 @@
 //! `VecSet` is a vector-based set implementation which retains the order of inserted elements.
 
+mod entry;
 mod impls;
 mod iter;
 #[cfg(feature = "serde")]
@@ -11,6 +12,7 @@ use core::borrow::Borrow;
 use core::ops::RangeBounds;
 use core::slice;
 
+pub use self::entry::{Entry, OccupiedEntry, VacantEntry};
 pub use self::iter::*;
 
 /// A vector-based set implementation which retains the order of inserted elements.
@@ -744,14 +746,72 @@ where
     ///
     /// let mut set = VecSet::new();
     /// unsafe {
-    ///     set.insert_at_maybe_unsorted(0, 1);
-    ///     set.insert_at_maybe_unsorted(1, 3);
-    ///     set.insert_at_maybe_unsorted(1, 2); // insert between 1 and 3
+    ///     set.insert_index_maybe_unsorted(0, 1);
+    ///     set.insert_index_maybe_unsorted(1, 3);
+    ///     set.insert_index_maybe_unsorted(1, 2); // insert between 1 and 3
     /// }
     /// assert_eq!(set.as_slice(), &[1, 2, 3]);
     /// ```
-    pub unsafe fn insert_at_maybe_unsorted(&mut self, index: usize, value: T) {
-        self.base.insert_at_maybe_unsorted(index, value);
+    pub unsafe fn insert_index_maybe_unsorted(&mut self, index: usize, value: T) {
+        self.base.insert_index_maybe_unsorted(index, value);
+    }
+
+    /// Gets the given value's corresponding entry in the set for in-place manipulation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let mut set = VecSet::new();
+    ///
+    /// for &word in &["a", "b", "c", "d"] {
+    ///     set.entry(word).or_insert();
+    /// }
+    ///
+    /// assert_eq!(set.len(), 4);
+    /// ```
+    pub fn entry(&mut self, value: T) -> Entry<T> {
+        let index = self.binary_search(&value);
+        unsafe { self.entry_index_maybe_unsorted(index, value) }
+    }
+
+    /// Get the entry in the set for insertion and/or in-place
+    /// manipulation by given index and value. The index must be a valid result of [`Self::binary_search`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid and maintains the sorted order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::VecSet;
+    ///
+    /// let mut set = VecSet::new();
+    ///
+    /// unsafe {
+    ///     match set.entry_index_maybe_unsorted(Err(0), 'b') {
+    ///         vecset::set::Entry::Vacant(e) => {
+    ///             e.insert();
+    ///         }
+    ///         vecset::set::Entry::Occupied(_) => {
+    ///             panic!("unreachable");
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// assert!(set.contains(&'b'));
+    /// ```
+    pub unsafe fn entry_index_maybe_unsorted(
+        &mut self,
+        index: Result<usize, usize>,
+        value: T,
+    ) -> Entry<T> {
+        match index {
+            Ok(index) => Entry::Occupied(OccupiedEntry::new(self, index)),
+            Err(index) => Entry::Vacant(VacantEntry::new(self, value, index)),
+        }
     }
 }
 

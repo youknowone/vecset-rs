@@ -842,7 +842,7 @@ where
     ///
     /// The given `index` must be vacant.
     ///
-    /// See also [`replace_at_maybe_unsorted`](#method.replace_at_maybe_unsorted) if you want to replace
+    /// See also [`replace_index_maybe_unsorted`](#method.replace_index_maybe_unsorted) if you want to replace
     /// existing slot.
     ///
     /// # Examples
@@ -852,13 +852,13 @@ where
     ///
     /// let mut map = KeyedVecSet::<&str, (&str, i32)>::new();
     /// unsafe {
-    ///     map.insert_at_maybe_unsorted(0, ("b", 2));
-    ///     map.insert_at_maybe_unsorted(1, ("c", 3));
-    ///     map.insert_at_maybe_unsorted(0, ("a", 1));
+    ///     map.insert_index_maybe_unsorted(0, ("b", 2));
+    ///     map.insert_index_maybe_unsorted(1, ("c", 3));
+    ///     map.insert_index_maybe_unsorted(0, ("a", 1));
     /// }
     /// assert_eq!(map["b"].1, 2);
     /// ```
-    pub unsafe fn insert_at_maybe_unsorted(&mut self, index: usize, value: V) {
+    pub unsafe fn insert_index_maybe_unsorted(&mut self, index: usize, value: V) {
         self.base.insert(index, value);
         debug_assert!(self.check_sorted(index));
     }
@@ -867,7 +867,7 @@ where
     ///
     /// The given `index` must be occupied.
     ///
-    /// See also [`insert_at_maybe_unsorted`](#method.insert_at_maybe_unsorted) if you want to insert
+    /// See also [`insert_index_maybe_unsorted`](#method.insert_index_maybe_unsorted) if you want to insert
     /// a new key-value pair.
     ///
     /// # Examples
@@ -876,11 +876,11 @@ where
     /// use vecset::KeyedVecSet;
     ///
     /// let mut map = unsafe { KeyedVecSet::<&str, (&str, i32)>::from_vec_maybe_unsorted(vec![("a", 10), ("b", 20), ("c", 30)]) };
-    /// let replaced = unsafe { map.replace_at_maybe_unsorted(1, ("b", 15)) };
+    /// let replaced = unsafe { map.replace_index_maybe_unsorted(1, ("b", 15)) };
     /// assert_eq!(replaced.1, 20);
     /// assert_eq!(map["b"].1, 15);
     /// ```
-    pub unsafe fn replace_at_maybe_unsorted(&mut self, index: usize, value: V) -> V {
+    pub unsafe fn replace_index_maybe_unsorted(&mut self, index: usize, value: V) -> V {
         let old_slot = mem::replace(&mut self.base[index], value);
         debug_assert!(self.check_sorted(index));
         old_slot
@@ -943,7 +943,7 @@ where
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
-        unsafe { self.entry_at_maybe_unsorted(self.binary_search(&key), key) }
+        unsafe { self.entry_index_maybe_unsorted(self.binary_search(&key), key) }
     }
 
     /// Get the entry in the map for insertion and/or in-place
@@ -965,7 +965,7 @@ where
     /// assert_eq!(letters[&'u'].1, 1);
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
-    pub unsafe fn entry_at_maybe_unsorted(
+    pub unsafe fn entry_index_maybe_unsorted(
         &mut self,
         index: Result<usize, usize>,
         key: K,

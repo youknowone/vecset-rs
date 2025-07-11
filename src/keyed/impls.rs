@@ -75,7 +75,7 @@ where
 {
     fn from_iter<I: IntoIterator<Item = Item>>(iter: I) -> Self {
         let mut map = KeyedVecSet::new();
-        map.extend(iter.into_iter());
+        map.extend(iter);
         map
     }
 }

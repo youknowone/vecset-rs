@@ -401,7 +401,7 @@ impl<T> VecSet<T> {
     ///
     /// [slice-sort]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort
     pub unsafe fn from_sorted_vec(vec: Vec<T>) -> Self {
-        let base = KeyedVecSet::from_sorted_vec(vec);
+        let base = unsafe { KeyedVecSet::from_sorted_vec(vec) };
         VecSet { base }
     }
 
@@ -518,7 +518,7 @@ impl<T> VecSet<T> {
     ///
     /// [`get_index`]: VecSet::get_index
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-        self.base.get_unchecked(index)
+        unsafe { self.base.get_unchecked(index) }
     }
 
     /// Returns the index and a reference to the value in the set, if any, that is equal to the
@@ -526,6 +526,10 @@ impl<T> VecSet<T> {
     ///
     /// The value may be any borrowed form of the set's value type, but [`Ord`] on the borrowed form
     /// *must* match those for the value type.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(index)` if the value is not found, where `index` is the position where the value would be inserted.
     ///
     /// # Examples
     ///
@@ -545,6 +549,10 @@ impl<T> VecSet<T> {
     }
 
     /// Return item index, if it exists in the set.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(index)` if the value is not found, where `index` is the position where the value would be inserted.
     ///
     /// # Examples
     ///
@@ -753,7 +761,7 @@ where
     /// assert_eq!(set.as_slice(), &[1, 2, 3]);
     /// ```
     pub unsafe fn insert_index_unchecked(&mut self, index: usize, value: T) {
-        self.base.insert_index_unchecked(index, value);
+        unsafe { self.base.insert_index_unchecked(index, value) };
     }
 
     /// Gets the given value's corresponding entry in the set for in-place manipulation.

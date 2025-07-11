@@ -33,7 +33,7 @@ impl<K, V> Keyed<K> for (K, V) {
 // KeySet
 impl<K> Keyed<K> for K {
     fn key(&self) -> &K {
-        &self
+        self
     }
 }
 
@@ -365,7 +365,8 @@ impl<K, V> KeyedVecSet<K, V> {
     /// Extracts a slice containing the map entries.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
     /// ```
     /// use vecset::KeyedVecSet;
@@ -396,7 +397,7 @@ impl<K, V> KeyedVecSet<K, V> {
     where
         V: Clone,
     {
-        self.base.to_vec()
+        self.base.clone()
     }
 
     /// Takes ownership of the map and returns its entries as a `Vec<(K, V)>`.
@@ -481,7 +482,8 @@ impl<K, V> KeyedVecSet<K, V> {
     /// Get the first key-value pair, with mutable access to the value.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
     /// # Examples
     ///
@@ -521,7 +523,8 @@ impl<K, V> KeyedVecSet<K, V> {
     /// Get the last key-value pair, with mutable access to the value.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
     /// # Examples
     ///
@@ -607,7 +610,8 @@ impl<K, V> KeyedVecSet<K, V> {
     /// is present, else `None`.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
     /// # Examples
     ///
@@ -639,7 +643,7 @@ impl<K, V> KeyedVecSet<K, V> {
     ///
     /// [`get_index`]: KeyedVecSet::get_index
     pub unsafe fn get_unchecked(&self, index: usize) -> &V {
-        self.base.get_unchecked(index)
+        unsafe { self.base.get_unchecked(index) }
     }
 
     /// Returns a mutable reference to an element or subslice, without doing
@@ -654,11 +658,15 @@ impl<K, V> KeyedVecSet<K, V> {
     ///
     /// [`get_index_mut`]: KeyedVecSet::get_index_mut
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
-        self.base.get_unchecked_mut(index)
+        unsafe { self.base.get_unchecked_mut(index) }
     }
 
     /// Return the index and references to the key-value pair stored for `key`, if it is present,
     /// else `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the index where the key would be inserted if it doesn't exist.
     ///
     /// # Examples
     ///
@@ -684,7 +692,12 @@ impl<K, V> KeyedVecSet<K, V> {
     /// `key`, if it is present, else `None`.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// # Errors
+    ///
+    /// Returns the index where the key would be inserted if it doesn't exist.
     ///
     /// # Examples
     ///
@@ -712,6 +725,10 @@ impl<K, V> KeyedVecSet<K, V> {
     }
 
     /// Return item index, if it exists in the map.
+    ///
+    /// # Errors
+    ///
+    /// Returns the index where the key would be inserted if it doesn't exist.
     ///
     /// # Examples
     ///
@@ -861,30 +878,8 @@ where
     /// assert_eq!(map["c"].1, 3);
     /// ```
     pub fn insert_index(&mut self, index: usize, value: V) {
-        if index > self.base.len() {
-            panic!(
-                "index out of bounds: the len is {} but the index is {}",
-                self.base.len(),
-                index
-            );
-        }
-
-        let key = value.key();
-
-        // Check if insertion would maintain sorted order
-        if index > 0 {
-            if self.base[index - 1].key() >= key {
-                panic!("insertion at index {} would break sorted order", index);
-            }
-        }
-        if index < self.base.len() {
-            if self.base[index].key() <= key {
-                panic!("insertion at index {} would break sorted order", index);
-            }
-        }
-
-        // Insert the value
         self.base.insert(index, value);
+        assert!(self.check_sorted(index));
     }
 
     /// Insert a key-value pair in the map without sorting validation.
@@ -893,6 +888,11 @@ where
     ///
     /// See also [`replace_index_unchecked`](#method.replace_index_unchecked) if you want to replace
     /// existing slot.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that inserting the value at the given index maintains the sorted order.
+    /// Failing to do so may result in a map with unsorted keys or duplicate keys.
     ///
     /// # Examples
     ///
@@ -932,30 +932,9 @@ where
     /// assert_eq!(map["b"].1, 15);
     /// ```
     pub fn replace_index(&mut self, index: usize, value: V) -> V {
-        if index >= self.base.len() {
-            panic!(
-                "index out of bounds: the len is {} but the index is {}",
-                self.base.len(),
-                index
-            );
-        }
-
-        let key = value.key();
-
-        // Check if replacement would maintain sorted order
-        if index > 0 {
-            if self.base[index - 1].key() > key {
-                panic!("replacement at index {} would break sorted order", index);
-            }
-        }
-        if index + 1 < self.base.len() {
-            if self.base[index + 1].key() < key {
-                panic!("replacement at index {} would break sorted order", index);
-            }
-        }
-
-        // Replace the value
-        mem::replace(&mut self.base[index], value)
+        let old_slot = mem::replace(&mut self.base[index], value);
+        assert!(self.check_sorted(index));
+        old_slot
     }
 
     /// Replace a key-value pair in the map without sorting validation.
@@ -964,6 +943,12 @@ where
     ///
     /// See also [`insert_index_unchecked`](#method.insert_index_unchecked) if you want to insert
     /// a new key-value pair.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the new value has the same key as the existing value at the given index
+    /// and that the replacement maintains the sorted order. Failing to do so may result in a map with
+    /// unsorted keys or duplicate keys.
     ///
     /// # Examples
     ///
@@ -1006,7 +991,7 @@ where
     /// ```
     pub fn insert_full(&mut self, value: V) -> (usize, Option<V>) {
         let key = value.key();
-        match self.binary_search(&key) {
+        match self.binary_search(key) {
             Ok(index) => {
                 let old_slot = mem::replace(&mut self.base[index], value);
                 (index, Some(old_slot))
@@ -1043,6 +1028,11 @@ where
 
     /// Get the entry in the map for insertion and/or in-place
     /// manipulation by given index and key. The index must be a valid result of [`Self::binary_search`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided index is a valid result of `binary_search` for the given key.
+    /// An incorrect index may lead to undefined behavior.
     ///
     /// ## Examples
     ///
@@ -1100,7 +1090,8 @@ impl<K, V: Keyed<K>> KeyedVecSet<K, V> {
     /// values. The iterator element type is `(&'a K, &'a mut V)`.
     ///
     /// # Safety
-    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way. Those states will make `KeyedVecSet` working unspecified way.
+    ///
+    /// Changing key may cause the map to be unsorted or have duplicate keys. Those states will make `KeyedVecSet` working unspecified way.
     ///
     /// # Examples
     ///
@@ -1128,27 +1119,6 @@ impl<K, V: Keyed<K>> KeyedVecSet<K, V> {
         self.base.iter_mut()
     }
 
-    /// Creates a consuming iterator visiting all the values in insertion order. The object cannot
-    /// be used after calling this. The iterator element type is `V`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vecset::KeyedVecSet;
-    ///
-    /// let map = KeyedVecSet::<&str, (&str, i32)>::from([
-    ///     ("a", 1),
-    ///     ("b", 2),
-    ///     ("c", 3),
-    /// ]);
-    ///
-    /// let mut vec: Vec<(&str, i32)> = map.into_iter().collect();
-    /// assert_eq!(vec, [("a", 1), ("b", 2), ("c", 3)]);
-    /// ```
-    pub fn into_iter(self) -> vec::IntoIter<V> {
-        self.base.into_iter()
-    }
-
     /// An iterator visiting all keys in insertion order. The iterator element type is `&'a K`.
     ///
     /// # Examples
@@ -1167,7 +1137,7 @@ impl<K, V: Keyed<K>> KeyedVecSet<K, V> {
     /// }
     /// ```
     pub fn keys(&self) -> impl core::iter::Iterator<Item = &K> + '_ {
-        self.iter().map(|slot| slot.key())
+        self.iter().map(Keyed::key)
     }
 }
 
@@ -1179,15 +1149,11 @@ where
 {
     fn check_sorted(&self, index: usize) -> bool {
         let key = self.base[index].key();
-        if index > 0 {
-            if self.base[index - 1].key() > key {
-                return false;
-            }
+        if index > 0 && self.base[index - 1].key() > key {
+            return false;
         }
-        if index + 1 < self.base.len() {
-            if self.base[index + 1].key() < key {
-                return false;
-            }
+        if index + 1 < self.base.len() && self.base[index + 1].key() < key {
+            return false;
         }
         true
     }

@@ -394,14 +394,14 @@ impl<T> VecSet<T> {
     /// vec.sort();
     /// vec.dedup();
     /// // SAFETY: We've just deduplicated the vector.
-    /// let set = unsafe { VecSet::from_vec_unchecked(vec) };
+    /// let set = unsafe { VecSet::from_sorted_vec(vec) };
     ///
     /// assert_eq!(set, VecSet::from(["b", "a", "c"]));
     /// ```
     ///
     /// [slice-sort]: https://doc.rust-lang.org/std/primitive.slice.html#method.sort
-    pub unsafe fn from_vec_unchecked(vec: Vec<T>) -> Self {
-        let base = KeyedVecSet::from_vec_maybe_unsorted(vec);
+    pub unsafe fn from_sorted_vec(vec: Vec<T>) -> Self {
+        let base = KeyedVecSet::from_sorted_vec(vec);
         VecSet { base }
     }
 
@@ -746,14 +746,14 @@ where
     ///
     /// let mut set = VecSet::new();
     /// unsafe {
-    ///     set.insert_index_maybe_unsorted(0, 1);
-    ///     set.insert_index_maybe_unsorted(1, 3);
-    ///     set.insert_index_maybe_unsorted(1, 2); // insert between 1 and 3
+    ///     set.insert_index_unchecked(0, 1);
+    ///     set.insert_index_unchecked(1, 3);
+    ///     set.insert_index_unchecked(1, 2); // insert between 1 and 3
     /// }
     /// assert_eq!(set.as_slice(), &[1, 2, 3]);
     /// ```
-    pub unsafe fn insert_index_maybe_unsorted(&mut self, index: usize, value: T) {
-        self.base.insert_index_maybe_unsorted(index, value);
+    pub unsafe fn insert_index_unchecked(&mut self, index: usize, value: T) {
+        self.base.insert_index_unchecked(index, value);
     }
 
     /// Gets the given value's corresponding entry in the set for in-place manipulation.
@@ -773,7 +773,7 @@ where
     /// ```
     pub fn entry(&mut self, value: T) -> Entry<T> {
         let index = self.binary_search(&value);
-        unsafe { self.entry_index_maybe_unsorted(index, value) }
+        unsafe { self.entry_index_unchecked(index, value) }
     }
 
     /// Get the entry in the set for insertion and/or in-place
@@ -791,7 +791,7 @@ where
     /// let mut set = VecSet::new();
     ///
     /// unsafe {
-    ///     match set.entry_index_maybe_unsorted(Err(0), 'b') {
+    ///     match set.entry_index_unchecked(Err(0), 'b') {
     ///         vecset::set::Entry::Vacant(e) => {
     ///             e.insert();
     ///         }
@@ -803,7 +803,7 @@ where
     ///
     /// assert!(set.contains(&'b'));
     /// ```
-    pub unsafe fn entry_index_maybe_unsorted(
+    pub unsafe fn entry_index_unchecked(
         &mut self,
         index: Result<usize, usize>,
         value: T,

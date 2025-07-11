@@ -58,6 +58,7 @@ where
     /// assert_eq!(map["poneyland"].1, 6);
     /// ```
     pub fn or_insert(self, default: V) -> Mut<'a, V> {
+        assert!(self.key() == default.key());
         match self {
             Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => entry.insert(default),
@@ -85,7 +86,11 @@ where
     {
         match self {
             Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
-            Entry::Vacant(entry) => entry.insert(call()),
+            Entry::Vacant(entry) => {
+                let value = call();
+                assert!(&entry.key == value.key());
+                entry.insert(value)
+            }
         }
     }
 
@@ -115,7 +120,134 @@ where
             Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
             Entry::Vacant(entry) => {
                 let value = default(&entry.key);
+                assert!(&entry.key == value.key());
                 entry.insert(value)
+            }
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting if it was vacant, and returns
+    /// the index of the entry and whether it was inserted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::new();
+    /// let (index, inserted) = map.entry("a").or_insert_full(("a", 1));
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, true);
+    ///
+    /// let (index, inserted) = map.entry("a").or_insert_full(("a", 2));
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, false);
+    /// ```
+    pub fn or_insert_full(self, value: V) -> (usize, bool) {
+        assert!(self.key() == value.key());
+        match self {
+            Entry::Occupied(e) => (e.index, false),
+            Entry::Vacant(e) => {
+                let index = e.index;
+                e.map.base.insert(index, value);
+                (index, true)
+            }
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting if it was vacant, and returns
+    /// the index of the entry and whether it was inserted.
+    ///
+    /// This version doesn't check if the key matches.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::new();
+    /// let (index, inserted) = unsafe { map.entry("a").or_insert_full_unchecked(("a", 1)) };
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, true);
+    ///
+    /// let (index, inserted) = unsafe { map.entry("a").or_insert_full_unchecked(("a", 2)) };
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, false);
+    /// ```
+    pub unsafe fn or_insert_full_unchecked(self, value: V) -> (usize, bool) {
+        match self {
+            Entry::Occupied(e) => (e.index, false),
+            Entry::Vacant(e) => {
+                let index = e.index;
+                e.map.base.insert(index, value);
+                (index, true)
+            }
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting the result of the default function if empty,
+    /// and returns the index of the entry and whether it was inserted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::new();
+    /// let (index, inserted) = map.entry("a").or_insert_with_full(|| ("a", 1));
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, true);
+    ///
+    /// let (index, inserted) = map.entry("a").or_insert_with_full(|| ("a", 2));
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, false);
+    /// ```
+    pub fn or_insert_with_full<F>(self, call: F) -> (usize, bool)
+    where
+        F: FnOnce() -> V,
+    {
+        match self {
+            Entry::Occupied(e) => (e.index, false),
+            Entry::Vacant(e) => {
+                let index = e.index;
+                let value = call();
+                assert!(&e.key == value.key());
+                e.map.base.insert(index, value);
+                (index, true)
+            }
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting the result of the default function if empty,
+    /// and returns the index of the entry and whether it was inserted.
+    ///
+    /// This version doesn't check if the key matches.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vecset::KeyedVecSet;
+    ///
+    /// let mut map = KeyedVecSet::new();
+    /// let (index, inserted) = unsafe { map.entry("a").or_insert_with_full_unchecked(|| ("a", 1)) };
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, true);
+    ///
+    /// let (index, inserted) = unsafe { map.entry("a").or_insert_with_full_unchecked(|| ("a", 2)) };
+    /// assert_eq!(index, 0);
+    /// assert_eq!(inserted, false);
+    /// ```
+    pub unsafe fn or_insert_with_full_unchecked<F>(self, call: F) -> (usize, bool)
+    where
+        F: FnOnce() -> V,
+    {
+        match self {
+            Entry::Occupied(e) => (e.index, false),
+            Entry::Vacant(e) => {
+                let index = e.index;
+                let value = call();
+                e.map.base.insert(index, value);
+                (index, true)
             }
         }
     }
@@ -189,31 +321,6 @@ where
                 Entry::Occupied(o)
             }
             x => x,
-        }
-    }
-
-    /// Ensures a value is in the entry by inserting the default value if empty,
-    /// and returns a mutable reference to the value in the entry.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() {
-    /// use vecset::KeyedVecSet;
-    ///
-    /// let mut map: KeyedVecSet<u32, u32> = KeyedVecSet::new();
-    /// map.entry(0).or_default();
-    ///
-    /// assert_eq!(map[0], 0);
-    /// # }
-    /// ```
-    pub fn or_default(self) -> Mut<'a, V>
-    where
-        V: Default,
-    {
-        match self {
-            Entry::Occupied(entry) => Mut(unsafe { entry.into_mut() }),
-            Entry::Vacant(entry) => entry.insert(V::default()),
         }
     }
 }

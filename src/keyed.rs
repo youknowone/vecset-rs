@@ -45,8 +45,7 @@ impl Keyed<str> for alloc::string::String {
 
 /// A vector-based map implementation which retains the order of inserted entries.
 ///
-/// Internally it is represented as a `Vec<(K, V)>` to support keys that are neither `Hash` nor
-/// `Ord`.
+/// Internally it is represented as a `Vec<(V)>`. `V` has to implement `Keyed<K>` to retrieve the key from its value.
 #[derive(Clone, Debug)]
 pub struct KeyedVecSet<K, V> {
     pub(crate) base: Vec<V>,

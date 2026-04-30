@@ -114,6 +114,15 @@ where
 
 impl<T> Eq for VecSet<T> where T: Eq {}
 
+impl<T> core::hash::Hash for VecSet<T>
+where
+    T: core::hash::Hash,
+{
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.base.hash(state);
+    }
+}
+
 impl<T> BitAnd<&VecSet<T>> for &VecSet<T>
 where
     T: Ord + Clone,

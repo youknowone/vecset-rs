@@ -143,6 +143,15 @@ where
 {
 }
 
+impl<K, V> core::hash::Hash for KeyedVecSet<K, V>
+where
+    V: core::hash::Hash,
+{
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.base.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -172,6 +181,42 @@ mod test {
         assert_eq!(
             KeyedVecSet::<&str, (&str, i32)>::from([("a", 1), ("b", 2)]),
             KeyedVecSet::<&str, (&str, i32)>::from([("b", 2), ("a", 1)])
+        );
+    }
+
+    #[test]
+    fn hash_matches_eq() {
+        extern crate std;
+        use core::hash::{BuildHasher, BuildHasherDefault, Hash};
+        use std::collections::hash_map::DefaultHasher;
+
+        fn h<T: Hash>(v: &T) -> u64 {
+            BuildHasherDefault::<DefaultHasher>::default().hash_one(v)
+        }
+
+        // Identical sets — same insertion order — must hash equal.
+        assert_eq!(
+            h(&KeyedVecSet::<&str, (&str, i32)>::from([
+                ("a", 1),
+                ("b", 2)
+            ])),
+            h(&KeyedVecSet::<&str, (&str, i32)>::from([
+                ("a", 1),
+                ("b", 2)
+            ])),
+        );
+        // Identical sets — different insertion order — must still hash
+        // equal because the canonical sorted form is what backs `eq`
+        // and `hash`.
+        assert_eq!(
+            h(&KeyedVecSet::<&str, (&str, i32)>::from([
+                ("a", 1),
+                ("b", 2)
+            ])),
+            h(&KeyedVecSet::<&str, (&str, i32)>::from([
+                ("b", 2),
+                ("a", 1)
+            ])),
         );
     }
 }

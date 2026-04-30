@@ -1021,7 +1021,7 @@ where
     /// assert_eq!(letters[&'u'].1, 1);
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
-    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
         unsafe { self.entry_index_unchecked(self.binary_search(&key), key) }
     }
 
@@ -1053,7 +1053,7 @@ where
         &mut self,
         index: Result<usize, usize>,
         key: K,
-    ) -> Entry<K, V> {
+    ) -> Entry<'_, K, V> {
         match index {
             Ok(index) => Entry::Occupied(OccupiedEntry::new(self, key, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(self, key, index)),

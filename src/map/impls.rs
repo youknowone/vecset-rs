@@ -177,6 +177,16 @@ where
 {
 }
 
+impl<K, V> core::hash::Hash for VecMap<K, V>
+where
+    K: core::hash::Hash,
+    V: core::hash::Hash,
+{
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.base.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

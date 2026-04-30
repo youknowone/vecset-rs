@@ -779,7 +779,7 @@ where
     ///
     /// assert_eq!(set.len(), 4);
     /// ```
-    pub fn entry(&mut self, value: T) -> Entry<T> {
+    pub fn entry(&mut self, value: T) -> Entry<'_, T> {
         let index = self.binary_search(&value);
         unsafe { self.entry_index_unchecked(index, value) }
     }
@@ -815,7 +815,7 @@ where
         &mut self,
         index: Result<usize, usize>,
         value: T,
-    ) -> Entry<T> {
+    ) -> Entry<'_, T> {
         match index {
             Ok(index) => Entry::Occupied(OccupiedEntry::new(self, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(self, value, index)),

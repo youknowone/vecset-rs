@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/youknowone/vecset-rs/compare/v0.0.3...v0.0.4) - 2026-04-30
+
+### Added
+
+- `Hash` impl for `KeyedVecSet`, `VecSet`, and `VecMap`, hashing the
+  canonical sorted backing slice so equal containers hash equal.
+
+### Other
+
+- Annotate `Entry` return-type lifetimes for the
+  `mismatched_lifetime_syntaxes` clippy lint.
+
 ## [0.0.3](https://github.com/youknowone/vecset-rs/compare/v0.0.2...v0.0.3) - 2025-07-12
 
 ### Other
